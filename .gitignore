@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Local novel projects, corpora, indexes, and generated state
+projects/
+corpus/
+corpora/
+indexes/
+*.db
+*.sqlite
+*.sqlite3
+*.faiss
+*.index
+*.npy
+*.npz
+*.pkl
+
+# Editor and OS metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

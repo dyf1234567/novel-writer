@@ -1,0 +1,7 @@
+interface:
+  display_name: "Novel Writer"
+  short_description: "管理中文长篇小说项目、连续性记忆、章节续写与可选质量审计"
+  default_prompt: "Use $novel-writer to continue my current novel project while preserving confirmed continuity."
+
+policy:
+  allow_implicit_invocation: true
