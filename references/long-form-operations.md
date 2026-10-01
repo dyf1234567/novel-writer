@@ -6,7 +6,7 @@ Read this reference for long serials, multi-volume fiction, or projects expected
 
 Use `hybrid` retrieval to combine exact lexical recall with local semantic recall. FTS5 remains the deterministic fallback; vector failure is degraded and must be reported rather than silently presented as hybrid success.
 
-The vector index contains accepted manuscript passages only. It must not index noncanonical drafts, source-author corpora, prompts, or review reports. Rebuild affected chapters after an accepted revision.
+The vector index contains content-bound accepted manuscript passages only. It must not index noncanonical drafts, source-author corpora, prompts, or review reports. After revising an accepted chapter, re-review, re-accept and rebuild before retrieval; see [project-policy.md](project-policy.md).
 
 Supported local embedding providers:
 

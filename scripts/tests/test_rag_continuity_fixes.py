@@ -26,6 +26,13 @@ RETRIEVER = SCRIPTS_DIR / "plot_rag_retriever.py"
 _ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
 
+def _accept_fixture_chapters(root):
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    from canonical_state import accept_chapter
+    for path in (root / "03_manuscript").glob("*.md"):
+        accept_chapter(root, path, "fixture")
+
+
 def _run(script, args):
     proc = subprocess.run(
         [sys.executable, str(script), *args],
@@ -209,7 +216,8 @@ class TestGatedIndexAndFallbackStatus(unittest.TestCase):
             "--chapter-file", str(chapter),
             "--query", "主角推进剧情",
             "--no-auto-draft", "--no-auto-improve", "--no-auto-retry",
-            "--min-paragraphs", "12", "--no-rollback-on-failure", "--force-run",
+            "--strict-prose-metrics", "--min-paragraphs", "12",
+            "--no-rollback-on-failure", "--force-run",
         ])
         self.assertIsNotNone(payload, f"输出非 JSON: {proc.stdout}")
         self.assertFalse(payload.get("gate_passed_final"))
@@ -238,6 +246,7 @@ class TestRetrievalResilience(unittest.TestCase):
               "把失踪名单上的名字又核对了一遍， numbering 无误。\n\n" * 8,
             encoding="utf-8",
         )
+        _accept_fixture_chapters(self.tmpdir)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -385,6 +394,7 @@ class TestFTS5Engine(unittest.TestCase):
               "把失踪名单上的名字又核对了一遍。\n\n" * 8,
             encoding="utf-8",
         )
+        _accept_fixture_chapters(self.tmpdir)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -605,6 +615,7 @@ class TestAliasAndGraphRecall(unittest.TestCase):
             }, ensure_ascii=False),
             encoding="utf-8",
         )
+        _accept_fixture_chapters(self.tmpdir)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)

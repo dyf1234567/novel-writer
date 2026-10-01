@@ -178,6 +178,7 @@ class TestNovelFlowExecutor(unittest.TestCase):
             "--no-auto-draft",
             "--no-auto-improve",
             "--no-auto-retry",
+            "--strict-prose-metrics",
             "--min-paragraphs",
             "12",
             "--force-run",

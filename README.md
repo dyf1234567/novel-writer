@@ -20,6 +20,12 @@ $novel-writer 继续写当前小说下一章，并保持人物、时间线和伏
 
 项目正文、向量索引、作者语料和本地配置不应提交到本仓库。可选的本地 embedding/RAG 能力需要使用者自行配置；skill 本体仍可在未安装 embedding 服务时使用文件检索与账本工作流。
 
+## 旧项目升级
+
+新版检索索引要求逐章接受记录。原稿不会被自动收编；请先审阅，再按 [项目策略与迁移说明](references/project-policy.md) 执行 `canonical_state.py accept` 和索引重建。节奏配额、强制断章等规则改为项目显式启用；可选的构思方法见 [创作工具](references/creative-toolkit.md)。
+
+`continue-write` 默认只报告字数、对话比例、重复度等机械指标，不用它们单独拦稿；确需数值硬门槛时添加 `--strict-prose-metrics`。Beat Sheet、广泛调研、批量审稿任务和四官审稿任务需主动开启。人工创作检查点及卷末审计要求仍默认开启；审稿任务文件不代表 Agent 已完成审稿。
+
 ## 来源与许可
 
 本项目包含基于 [leenbj/novel-creator-skill](https://github.com/leenbj/novel-creator-skill) 思路及材料的改编，并已获得原作者公开发布许可。详细说明见 [NOTICE.md](NOTICE.md)。上游未声明开源许可证，本仓库也暂未附加通用开源许可证；公开可见不等于自动授予复制、修改或再分发权。

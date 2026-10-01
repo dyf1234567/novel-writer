@@ -23,6 +23,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, load_json, read_text, save_json
+from common import chapter_no_from_name
+from project_policy import load_policy
 
 # ── 配置 ──────────────────────────────────────────────────────────
 
@@ -166,17 +168,8 @@ def cmd_check(args: argparse.Namespace, cfg: AntiResConfig) -> Dict[str, Any]:
 
     text = read_text(chapter_path)
     anchors = _load_anchors(root, cfg)
-    is_finale = args.is_finale
-
-    # 如果是终局章节，跳过大部分检查
-    if is_finale:
-        return {
-            "ok": True, "command": "check",
-            "chapter_file": str(chapter_path),
-            "is_finale": True,
-            "message": "终局章节，反向刹车规则不适用",
-            "checks": {},
-        }
+    policy = load_policy(root)["narrative"]
+    is_finale = args.is_finale or chapter_no_from_name(chapter_path.name) in policy["finale_chapters"]
 
     # 执行四项检查
     forbidden = anchors.get("current_node", {}).get("forbidden_reveals", [])
@@ -190,9 +183,9 @@ def cmd_check(args: argparse.Namespace, cfg: AntiResConfig) -> Dict[str, Any]:
     warnings: List[str] = []
 
     # 规则1：核心矛盾解决信号
-    if resolution_result["risk"] == "high":
+    if policy["avoid_resolution"] and not is_finale and resolution_result["risk"] == "high":
         errors.append(f"检测到多个核心矛盾解决信号: {', '.join(resolution_result['signals'])}")
-    elif resolution_result["risk"] == "medium":
+    elif policy["avoid_resolution"] and not is_finale and resolution_result["risk"] == "medium":
         warnings.append(f"检测到核心矛盾解决信号: {resolution_result['signals'][0]}")
 
     # 规则2：禁止揭露
@@ -200,18 +193,18 @@ def cmd_check(args: argparse.Namespace, cfg: AntiResConfig) -> Dict[str, Any]:
         errors.append(f"提前揭露了禁止揭露的内容: {', '.join(reveal_result['revealed'])}")
 
     # 规则3：章末悬念
-    if not tail_result["has_suspense"]:
-        warnings.append("章末未检测到悬念元素，建议添加钩子")
+    if policy["cliffhanger"] and not is_finale and not tail_result["has_suspense"]:
+        errors.append("项目启用章末悬念规则，但未检测到预设标记；请人工复核结尾")
 
     # 规则4：A/B/C 配额（Iron Law第6条：每章至多触发1项）
     triggered_count = quota_result["triggered_count"]
     triggered_quotas = quota_result["triggered_quotas"]
-    if triggered_count >= cfg.quota_check_threshold:
+    if policy["quota_abc"] and not is_finale and triggered_count >= cfg.quota_check_threshold:
         errors.append(
             f"A/B/C 配额违规：单章同时触发 {triggered_count} 项"
             f"（{', '.join(triggered_quotas)}），每章至多触发1项"
         )
-    elif triggered_count == 1:
+    elif policy["quota_abc"] and not is_finale and triggered_count == 1:
         warnings.append(f"A/B/C 配额已使用 1 项（{triggered_quotas[0]}），请确认节奏档位")
 
     passed = len(errors) == 0
@@ -219,8 +212,9 @@ def cmd_check(args: argparse.Namespace, cfg: AntiResConfig) -> Dict[str, Any]:
     return {
         "ok": True, "command": "check",
         "chapter_file": str(chapter_path),
-        "is_finale": False,
         "passed": passed,
+        "policy": policy,
+        "is_finale": is_finale,
         "errors": errors,
         "warnings": warnings,
         "checks": {
@@ -238,21 +232,27 @@ def cmd_constraint(args: argparse.Namespace, cfg: AntiResConfig) -> Dict[str, An
     anchors = _load_anchors(root, cfg)
     node = anchors.get("current_node", {})
     forbidden = node.get("forbidden_reveals", [])
-    tension = node.get("mandatory_tension", cfg.plan_rel_path)
+    tension = node.get("mandatory_tension", "")
+    policy = load_policy(root)["narrative"]
+    chapter_no = args.chapter or int(node.get("chapter", 0) or 0)
+    finale = chapter_no in policy["finale_chapters"]
 
     core_conflicts = _extract_core_conflicts(anchors)
     core_str = "、".join(core_conflicts[:3]) if core_conflicts else "主线核心矛盾"
 
-    prompt = (
-        f"重要约束：不要在本章解决核心矛盾「{core_str}」。\n"
-        f"必须保留悬念，制造新的次要障碍，让角色的短期目标落空或延后。\n"
-        f"章末必须留下一个让读者想翻下一页的钩子。\n"
-    )
+    prompt = ""
+    if policy["avoid_resolution"] and not finale:
+        prompt += f"项目约束：本章不解决核心矛盾「{core_str}」。\n"
+    if policy["cliffhanger"] and not finale:
+        prompt += "项目偏好：章末保留值得追问的问题，不为断章制造无因果障碍。\n"
+    if policy["quota_abc"] and not finale:
+        prompt += "项目配额：主线决定性推进、关系决定性升级、核心秘密揭露最多一项。\n"
 
     if forbidden:
         prompt += f"本章禁止揭露：{', '.join(forbidden)}。\n"
 
-    prompt += f"张力要求：{tension}。"
+    if tension:
+        prompt += f"张力要求：{tension}。"
 
     return {
         "ok": True, "command": "constraint",
@@ -275,6 +275,7 @@ def parse_args() -> argparse.Namespace:
 
     s = sub.add_parser("constraint", help="生成写作约束 prompt")
     s.add_argument("--project-root", required=True)
+    s.add_argument("--chapter", type=int, help="即将写作的章节号，用于识别终局章")
 
     return p.parse_args()
 

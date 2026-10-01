@@ -10,6 +10,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from creative_checkpoint import decide, evaluate
+from canonical_state import accept_chapter
 from local_vector_retriever import build_index, query_index
 from plot_rag_retriever import _rrf_hybrid
 from volume_audit import collect_audit, complete_audit
@@ -24,6 +25,7 @@ def make_project(root: Path, chapter_count: int = 2, volume_end: int = 2) -> Non
             f"# 第{number}章 测试\n\n{topic}。这是已接受的章节正文，人物做出了不可逆的选择。\n",
             encoding="utf-8",
         )
+        accept_chapter(root, root / "03_manuscript" / f"第{number}章-测试.md", "fixture")
     for name in (
         "novel_state.md",
         "character_tracker.md",

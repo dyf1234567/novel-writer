@@ -12,11 +12,13 @@ Coordinate long-form fiction without treating one writing recipe as universally 
 Choose one primary mode before loading detailed guidance:
 
 - **Create or plan a project**: read [workflows.md](references/workflows.md), sections "Create" and "Plan".
+- **Explore plot alternatives, opening strategy, character agency, or pacing**: read [creative-toolkit.md](references/creative-toolkit.md) when the request warrants writing guidance.
 - **Draft or continue chapters**: read [workflows.md](references/workflows.md), section "Draft and continue", plus [project-contract.md](references/project-contract.md).
 - **Revise an existing chapter or outline**: read [workflows.md](references/workflows.md), section "Revise". Never infer permission to rewrite unaffected chapters.
 - **Inspect status, continuity, characters, timeline, or foreshadowing**: read [project-contract.md](references/project-contract.md). Inspection alone does not authorize edits.
 - **Run editorial or release checks**: read [quality-gates.md](references/quality-gates.md).
 - **Operate a long serial or million-word project**: read [long-form-operations.md](references/long-form-operations.md) for hybrid retrieval, whole-volume audits, and human checkpoints.
+- **Accept older chapters, configure gates, or recover an audit**: read [project-policy.md](references/project-policy.md).
 - **Apply an author-derived style pack**: read [style-integration.md](references/style-integration.md). Keep source lore disabled unless the user explicitly requests adaptation or fan fiction.
 
 For a standalone short story or a one-off paragraph, write directly without initializing the long-form project machinery unless the user asks to turn it into a managed novel project.
@@ -41,6 +43,7 @@ The project files are durable state; chat history is not.
 - Record the chapter or revision that changed a durable fact.
 - Treat generated summaries as fallible evidence, not unquestionable truth. Prefer manuscript text and user-confirmed facts when sources conflict.
 - After an accepted chapter, update relevant project memory and retrieval indexes. Drafts rejected by the user or failed by a blocking check must not enter canonical memory.
+- Verify a chapter's content-bound acceptance record before indexing or using historical passages. An older project needs explicit adoption; do not silently trust files merely because they reside in the manuscript directory.
 - Preserve recoverability before a broad outline cascade or multi-file rewrite.
 
 Detailed state ownership and transitions are in [project-contract.md](references/project-contract.md).
@@ -58,7 +61,7 @@ Assemble only the context needed for the current chapter:
 
 Generate clean manuscript prose. Never place analysis labels, TODOs, role descriptions, or review commentary inside the manuscript region.
 
-Pacing quotas, cliffhanger frequency, dialogue ratios, and prose metrics are project policies, not universal laws. Apply them only when configured or requested.
+Pacing quotas and cliffhanger frequency are opt-in project policies. The `continue-write` CLI records prose metrics as advisory signals by default; use `--strict-prose-metrics` only when the user wants numeric thresholds to block acceptance. An explicit Beat Sheet mode may enforce its own beat targets. Do not treat metric success as literary approval.
 
 ## Quality levels
 
@@ -87,6 +90,7 @@ scripts/novel_flow_executor.py one-click
 scripts/novel_flow_executor.py continue-write
 scripts/novel_flow_executor.py revise-outline
 scripts/plot_rag_retriever.py build|query
+scripts/canonical_state.py status|accept
 scripts/local_vector_retriever.py build|query
 scripts/volume_audit.py collect|complete|status
 scripts/creative_checkpoint.py status|approve|reject

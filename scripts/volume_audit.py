@@ -6,15 +6,31 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import hashlib
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from common import ensure_dir, read_text, write_text
 from plot_rag_retriever import parse_chapter_no
+from canonical_state import acceptance, atomic_json, digest
 
 
 STATE_FILE = "audit_state.json"
+
+
+def audit_fingerprint(project_root: Path, start: int, end: int) -> str:
+    inputs = []
+    for path in sorted((project_root / "03_manuscript").glob("*.md")):
+        if start <= parse_chapter_no(path.name) <= end:
+            inputs.append((path.name, digest(path), acceptance(project_root, path)[0]))
+    for name in ("novel_state.md", "character_tracker.md", "timeline.md", "world_state.md",
+                 "foreshadowing_tracker.md", "outline_anchors.json"):
+        path = project_root / "00_memory" / name
+        inputs.append((name, digest(path) if path.exists() else None))
+    policy = project_root / ".novel_policy.json"
+    inputs.append(("policy", digest(policy) if policy.exists() else None))
+    return hashlib.sha256(json.dumps(inputs, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def _volume_range(project_root: Path, volume: int) -> Tuple[int, int, str]:
@@ -58,6 +74,12 @@ def collect_audit(
         raise ValueError("invalid volume chapter range")
 
     manuscript = project_root / "03_manuscript"
+    input_fingerprint = audit_fingerprint(project_root, start, end)
+    all_chapters = [p for p in manuscript.glob("*.md") if start <= parse_chapter_no(p.name) <= end]
+    duplicate_numbers = sorted({parse_chapter_no(p.name) for p in all_chapters
+                                if sum(parse_chapter_no(q.name) == parse_chapter_no(p.name)
+                                       for q in all_chapters) > 1})
+    unaccepted = [p.name for p in all_chapters if not acceptance(project_root, p)[0]]
     chapters = {
         parse_chapter_no(p.name): p
         for p in manuscript.glob("*.md")
@@ -106,6 +128,8 @@ def collect_audit(
         "chapter_range": [start, end],
         "chapters_found": len(chapters),
         "missing_chapters": missing,
+        "duplicate_chapter_numbers": duplicate_numbers,
+        "unaccepted_chapters": unaccepted,
         "stub_chapters": stubs,
         "duplicate_headings": duplicate_headings,
         "missing_trackers": missing_trackers,
@@ -114,7 +138,7 @@ def collect_audit(
     }
     (audit_dir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    blocking = bool(missing or stubs or missing_trackers)
+    blocking = bool(missing or stubs or missing_trackers or duplicate_numbers or unaccepted)
     lines = [
         f"# 第{volume}卷全卷审计",
         "",
@@ -126,6 +150,8 @@ def collect_audit(
         "## 自动发现",
         f"- 缺失章节：{missing or '无'}",
         f"- 占位章节：{stubs or '无'}",
+        f"- 重复章号：{duplicate_numbers or '无'}",
+        f"- 未接受或已修改正文：{unaccepted or '无'}",
         f"- 缺失状态文件：{missing_trackers or '无'}",
         f"- 重复标题：{duplicate_headings or '无'}",
         f"- 活跃伏笔条目：{len(active_foreshadows)}",
@@ -145,22 +171,36 @@ def collect_audit(
     report_path = audit_dir / "audit_report.md"
     write_text(report_path, "\n".join(lines) + "\n")
     state = {
+        "schema_version": 2,
+        "input_fingerprint": input_fingerprint,
         "volume": volume,
         "chapter_range": [start, end],
         "status": "blocked" if blocking else "pending_review",
         "updated_at": dt.datetime.now().isoformat(timespec="seconds"),
         "report": str(report_path),
     }
-    (audit_dir / STATE_FILE).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    if audit_fingerprint(project_root, start, end) != input_fingerprint:
+        raise RuntimeError("收集期间审计输入变化，请重新 collect")
+    atomic_json(audit_dir / STATE_FILE, state)
     return {"ok": not blocking, "state": state, "evidence_file": str(audit_dir / "evidence.json")}
 
 
 def complete_audit(project_root: Path, volume: int, verdict: str, reviewer: str, notes: str) -> Dict[str, object]:
+    if verdict not in {"pass", "needs_revision"} or not reviewer.strip() or not notes.strip():
+        raise ValueError("需要有效结论、审阅者和审阅说明")
     audit_dir = project_root / "04_editing" / "volume_audits" / f"volume_{volume:02d}"
     state_path = audit_dir / STATE_FILE
     if not state_path.exists():
         raise RuntimeError("audit does not exist; run collect first")
     state = json.loads(read_text(state_path))
+    if verdict == "pass":
+        if state.get("schema_version") != 2:
+            raise RuntimeError("旧审计缺少内容指纹，请重新 collect 后审阅")
+        if state.get("status") == "blocked":
+            raise RuntimeError("结构审计仍阻断；先修复并重新 collect，不能直接 pass")
+        start, end = state["chapter_range"]
+        if state.get("input_fingerprint") != audit_fingerprint(project_root, start, end):
+            raise RuntimeError("审计证据已过期，请重新 collect 并审阅")
     state.update(
         {
             "status": verdict,
@@ -169,7 +209,7 @@ def complete_audit(project_root: Path, volume: int, verdict: str, reviewer: str,
             "updated_at": dt.datetime.now().isoformat(timespec="seconds"),
         }
     )
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(state_path, state)
     return {"ok": verdict == "pass", "state": state}
 
 
@@ -178,6 +218,11 @@ def status(project_root: Path, volume: int) -> Dict[str, object]:
     if not state_path.exists():
         return {"ok": False, "volume": volume, "status": "missing"}
     state = json.loads(read_text(state_path))
+    if state.get("schema_version") != 2:
+        return {"ok": False, "state": {**state, "status": "stale"}, "reason": "重新 collect 旧版审计"}
+    start, end = state["chapter_range"]
+    if state.get("input_fingerprint") != audit_fingerprint(project_root, start, end):
+        return {"ok": False, "state": {**state, "status": "stale"}, "reason": "正文或记忆已变化，请重新 collect"}
     return {"ok": state.get("status") == "pass", "state": state}
 
 

@@ -36,6 +36,10 @@ Run only when requested, configured, or justified by risk:
 
 Regex and metric checks produce evidence, not final literary judgments. Treat unusual prose as a review signal rather than an automatic defect.
 
+`continue-write` defaults to advisory prose metrics. The report still records short length, dialogue ratio, repetition, and other signals, but they do not by themselves fail the chapter gate or trigger padding. `--strict-prose-metrics` explicitly restores numeric blocking for a project that wants it. The Beat Sheet pipeline is also opt-in because its per-beat length targets are hard constraints. Structural contamination, protected reveals, and invalid state transitions remain blocking.
+
+`--auto-batch-review` and `--four-official` generate review task files only. They do not dispatch agents or record an editorial verdict; report the tasks as pending until a reviewer actually completes them.
+
 ## Suggested cadence
 
 - every accepted chapter: state synchronization and targeted continuity check;

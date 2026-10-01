@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from common import ensure_dir, read_text, write_text
+from canonical_state import atomic_json
+from volume_audit import audit_fingerprint, status as volume_audit_status
 
 
 STATE_FILENAME = "creative_checkpoints.json"
@@ -56,7 +58,7 @@ def _load_state(project_root: Path) -> Dict[str, object]:
 
 
 def _save_state(project_root: Path, data: Dict[str, object]) -> None:
-    _state_path(project_root).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(_state_path(project_root), data)
 
 
 def checkpoint_key(completed_chapter: int) -> str:
@@ -89,7 +91,7 @@ def evaluate(
     if volume is not None and require_volume_audit:
         audit_state = project_root / "04_editing" / "volume_audits" / f"volume_{volume:02d}" / "audit_state.json"
         if audit_state.exists():
-            audit = json.loads(read_text(audit_state))
+            audit = volume_audit_status(project_root, volume).get("state", {})
             audit_status = str(audit.get("status") or "pending_review")
             audit_report = audit.get("report")
         else:
@@ -106,7 +108,8 @@ def evaluate(
                     audit_status = "collection_failed"
                     audit_report = str(exc)
 
-    approved = record.get("status") == "approved"
+    approved = (record.get("status") == "approved" and
+                record.get("input_fingerprint") == audit_fingerprint(project_root, 1, completed))
     audit_ok = audit_status in {"not_required", "pass"}
     if approved and audit_ok:
         return {
@@ -144,6 +147,9 @@ def evaluate(
         if isinstance(checkpoints, dict):
             checkpoints[key] = {
                 "status": record.get("status", "pending"),
+                "input_fingerprint": record.get("input_fingerprint"),
+                "reviewer": record.get("reviewer"),
+                "notes": record.get("notes"),
                 "completed_chapter": completed,
                 "next_chapter": next_chapter,
                 "reasons": reasons,
@@ -167,6 +173,8 @@ def evaluate(
 
 
 def decide(project_root: Path, completed_chapter: int, status: str, reviewer: str, notes: str) -> Dict[str, object]:
+    if completed_chapter < 1 or status not in {"approved", "rejected"} or not reviewer.strip() or not notes.strip():
+        raise ValueError("检查点需有效章号、结论、审阅者和说明")
     key = checkpoint_key(completed_chapter)
     data = _load_state(project_root)
     checkpoints = data.setdefault("checkpoints", {})
@@ -177,6 +185,7 @@ def decide(project_root: Path, completed_chapter: int, status: str, reviewer: st
     record.update(
         {
             "status": status,
+            "input_fingerprint": audit_fingerprint(project_root, 1, completed_chapter),
             "completed_chapter": completed_chapter,
             "reviewer": reviewer.strip() or "human",
             "notes": notes.strip(),

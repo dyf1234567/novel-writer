@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from common import slugify, file_sha1
+from canonical_state import digest
+from project_policy import load_policy
 
 # 确保同目录脚本可直接 import
 _SCRIPT_DIR = Path(__file__).parent
@@ -89,6 +91,7 @@ def check_quality_report(path: Path) -> Tuple[bool, str]:
     if not m:
         return False, "quality_report 缺少\"通过：True/False\"结论"
     report_passed = (m.group(1) == "True")
+    advisory = bool(re.search(r"指标模式[：:]\s*advisory\b", txt))
 
     # 检查段落重复度指标（无论总体是否通过都执行，确保输出详细失败信息）
     dup_failures = []
@@ -118,7 +121,7 @@ def check_quality_report(path: Path) -> Tuple[bool, str]:
     failures: List[str] = []
     if not report_passed:
         failures.append("quality_report 显示未通过")
-    if dup_failures:
+    if dup_failures and not advisory:
         failures.append("段落重复度检查失败: " + "; ".join(dup_failures))
     if failures:
         return False, "；".join(failures)
@@ -374,6 +377,11 @@ def main() -> int:
             result["failures"].append(f"quality_baseline: {msg}")
 
     # ── 反向刹车校验（anti_resolution_guard check）────────────────────
+    try:
+        project_policy = load_policy(project_root)
+    except (OSError, ValueError) as exc:
+        result["failures"].append(f"project_policy: {exc}")
+        project_policy = {"pacing": {"enabled": False}}
     # 检查章末悬念、禁止揭露、分辨率信号，将 errors → failures / warnings → warnings
     try:
         import anti_resolution_guard as _arg_mod  # noqa: PLC0415
@@ -404,13 +412,12 @@ def main() -> int:
         for _w in _arg_warnings:
             result["warnings"].append(f"anti_resolution_guard: {_w}")
     except Exception as _exc:
-        # 脚本不可用时降级为警告，不阻断门禁
-        result["warnings"].append(f"anti_resolution_guard 不可用（跳过）: {_exc}")
+        result["failures"].append(f"anti_resolution_guard 无法核对保护信息: {_exc}")
         result["checks"].append(
             {
                 "name": "anti_resolution_guard",
                 "path": str(chapter_path),
-                "ok": True,
+                "ok": False,
                 "message": f"跳过（脚本加载失败）: {_exc}",
             }
         )
@@ -421,6 +428,9 @@ def main() -> int:
         import pacing_tracker as _pt_mod  # noqa: PLC0415
 
         _pt_cfg = _pt_mod.PacingConfig()
+        for key in ("max_fast_per_volume", "max_consecutive_fast", "slow_density_window"):
+            if key in project_policy["pacing"]:
+                setattr(_pt_cfg, key, project_policy["pacing"][key])
         _ch_no = extract_chapter_number(chapter_id)
         _pt_args = types.SimpleNamespace(
             project_root=str(project_root),
@@ -430,7 +440,10 @@ def main() -> int:
             current_tier=getattr(args, "pacing_tier", None),
             current_event_types=getattr(args, "pacing_event_types", "") or "",
         )
-        _pt_result: Dict[str, Any] = _pt_mod.cmd_check(_pt_args, _pt_cfg)
+        _pt_result: Dict[str, Any] = (
+            _pt_mod.cmd_check(_pt_args, _pt_cfg) if project_policy["pacing"]["enabled"]
+            else {"errors": [], "warnings": [], "skipped": True, "reason": "项目未启用节奏配额"}
+        )
 
         _pt_errors: List[str] = _pt_result.get("errors", []) or []
         _pt_warnings: List[str] = _pt_result.get("warnings", []) or []
@@ -453,12 +466,14 @@ def main() -> int:
         for _w in _pt_warnings:
             result["warnings"].append(f"pacing_tracker: {_w}")
     except Exception as _exc:
+        if project_policy["pacing"]["enabled"]:
+            result["failures"].append(f"pacing_tracker 已启用但执行失败: {_exc}")
         result["warnings"].append(f"pacing_tracker 不可用（跳过）: {_exc}")
         result["checks"].append(
             {
                 "name": "pacing_tracker",
                 "path": str(project_root / "00_memory" / "pacing_history.json"),
-                "ok": True,
+                "ok": not project_policy["pacing"]["enabled"],
                 "message": f"跳过（脚本加载失败）: {_exc}",
             }
         )
@@ -507,6 +522,7 @@ def main() -> int:
 
     result["passed"] = len(result["failures"]) == 0
 
+    result["chapter_sha256"] = digest(chapter_path)
     gate_result = gate_dir / "gate_result.json"
     gate_result.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 

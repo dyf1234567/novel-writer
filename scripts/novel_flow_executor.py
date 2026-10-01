@@ -500,7 +500,7 @@ def _collect_writing_constraints(
     )
     a_code, a_out, _a_err, a_payload = run_python(
         SCRIPT_DIR / "anti_resolution_guard.py",
-        ["constraint", "--project-root", str(project_root)],
+        ["constraint", "--project-root", str(project_root), "--chapter", str(chapter_no)],
     )
     e_code, e_out, _e_err, e_payload = run_python(
         SCRIPT_DIR / "event_matrix_scheduler.py",
@@ -1015,6 +1015,11 @@ def evaluate_quality(text: str, args: argparse.Namespace) -> Dict[str, object]:
                 f"— 概括跳过密度极高，standard 模式亦不可接受，需展开场景"
             )
 
+    strict_prose_metrics = bool(getattr(args, "strict_prose_metrics", True))
+    metric_signals = list(failures)
+    if not strict_prose_metrics:
+        failures = []
+
     return {
         "char_count": char_count,
         "paragraph_count": paragraph_count,
@@ -1031,6 +1036,8 @@ def evaluate_quality(text: str, args: argparse.Namespace) -> Dict[str, object]:
         "pacing_mode": pacing_mode_val,
         "skip_density": skip_density,
         "skip_density_exceeded": skip_density_exceeded,
+        "strict_prose_metrics": strict_prose_metrics,
+        "metric_signals": metric_signals,
         "passed": len(failures) == 0,
         "failures": failures,
     }
@@ -1585,6 +1592,7 @@ def write_quality_report(gate_dir: Path, quality_before: Dict[str, object], qual
 
     lines = [
         "# 章节质量检查",
+        f"- 指标模式：{'strict' if safe_get(quality_after, 'strict_prose_metrics', True) else 'advisory'}",
         "",
         "## 修复前",
         f"- 字符数：{safe_get(quality_before, 'char_count', 'N/A')}",
@@ -1603,6 +1611,7 @@ def write_quality_report(gate_dir: Path, quality_before: Dict[str, object], qual
         f"- 段落唯一比例：{safe_get(quality_after, 'paragraph_unique_ratio', 'N/A')}",
         f"- 最大重复段落次数：{safe_get(quality_after, 'max_duplicate_paragraph_repeat', 'N/A')}",
         f"- 失败项：{safe_get(quality_after, 'failures', [])}",
+        f"- 指标提示：{safe_get(quality_after, 'metric_signals', [])}",
         "",
         f"- 通过：{safe_get(quality_after, 'passed', False)}",
     ]
@@ -2227,7 +2236,7 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         llm_error_msg = None
 
         # Beat Sheet 流水线（优先于普通 draft，默认开启）
-        if getattr(args, "use_beat_sheet", True) and chapter_is_draft_stub(chapter_path):
+        if getattr(args, "use_beat_sheet", False) and chapter_is_draft_stub(chapter_path):
             _beat_chapter_no = chapter_no_from_name(chapter_path.name)
             if _beat_chapter_no > 0:
                 beat_applied, beat_mode = _generate_beat_draft(
@@ -2439,6 +2448,9 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         # 索引仅在门禁通过且为正式产物时重建，
         # 避免占位章 / 门禁失败章 / 模板兜底正文污染检索语料。
         if gate_passed_final and chapter_path and generation_status == "completed":
+            from canonical_state import accept_chapter
+
+            accept_chapter(project_root, chapter_path, "configured-pipeline", source="pipeline")
             b_code, b_out, b_err, b_payload = run_python(
                 SCRIPT_DIR / "plot_rag_retriever.py",
                 ["build", "--project-root", str(project_root)] + _retrieval_engine_args(args),
@@ -2521,7 +2533,7 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
                     )
             # 风格基准自动更新：每 N 章（默认10章）更新一次
             style_update_file: Optional[str] = None
-            if getattr(args, "auto_style_update", True):
+            if getattr(args, "auto_style_update", False):
                 _style_interval = getattr(args, "style_update_interval", 10)
                 _all_chapters = sorted({
                     chapter_no_from_name(p.name)
@@ -2557,7 +2569,7 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
             # （默认开启；派发四官由主 Agent 编排，脚本只生成自包含任务文件）
             four_official_task_dir: Optional[str] = None
             four_official_manifest: Optional[str] = None
-            if getattr(args, "four_official_audit", True) and _chapter_no > 0:
+            if getattr(args, "four_official_audit", False) and _chapter_no > 0:
                 _fo_args = [
                     "generate",
                     "--project-root", str(project_root),
@@ -3087,7 +3099,8 @@ def parse_args() -> argparse.Namespace:
     p_cont.add_argument("--idempotent-cache", dest="idempotent_cache", action="store_true", default=True)
     p_cont.add_argument("--no-idempotent-cache", dest="idempotent_cache", action="store_false")
     p_cont.add_argument("--lock-timeout-sec", type=int, default=1800)
-    p_cont.add_argument("--min-chars", type=int, default=2500)  # 从1200提升至2500
+    p_cont.add_argument("--min-chars", type=int, default=2500,
+                        help="草稿目标字符数；仅 --strict-prose-metrics 开启时作为门禁下限")
     p_cont.add_argument("--min-paragraphs", type=int, default=8)  # 从6提升至8
     p_cont.add_argument(
         "--pacing-mode", choices=["fast", "standard", "immersive"], default="standard",
@@ -3105,7 +3118,9 @@ def parse_args() -> argparse.Namespace:
                         help="相邻章节字数差异限制，默认0.3（30%%）")
     p_cont.add_argument("--max-ai-phrase-density", type=float, default=0.05,
                         help="AI高频词密度限制，默认0.05（5%%）")
-    p_cont.add_argument("--auto-research", dest="auto_research", action="store_true", default=True,
+    p_cont.add_argument("--strict-prose-metrics", action="store_true", default=False,
+                        help="将字数、对话比例、重复度等机械指标升为拦稿门禁；默认只提示")
+    p_cont.add_argument("--auto-research", dest="auto_research", action="store_true", default=False,
                         help="写前自动检测知识缺口并提示调研")
     p_cont.add_argument("--draft-provider", choices=["auto", "template", "llm"], default="auto",
                         help="Draft strategy: auto (Two-Phase if LLM configured), template, or llm")
@@ -3149,14 +3164,14 @@ def parse_args() -> argparse.Namespace:
                         action="store_false",
                         help="禁用图谱自动更新")
     p_cont.add_argument("--auto-batch-review", dest="auto_batch_review",
-                        action="store_true", default=True,
-                        help="章节数达到10/20/30...时自动生成批量审核任务（默认开启）")
+                        action="store_true", default=False,
+                        help="章节数达到10/20/30...时生成批量审核任务文件（默认关闭，不执行 Agent 审稿）")
     p_cont.add_argument("--no-batch-review", dest="auto_batch_review",
                         action="store_false",
                         help="禁用每10章批量审核")
     p_cont.add_argument("--four-official", dest="four_official_audit",
-                        action="store_true", default=True,
-                        help="门禁通过后自动生成四官审计任务文件（文风/结构/人物/质量，默认开启）")
+                        action="store_true", default=False,
+                        help="门禁通过后生成四官审计任务文件（默认关闭，不执行 Agent 审稿）")
     p_cont.add_argument("--no-four-official", dest="four_official_audit",
                         action="store_false",
                         help="禁用门禁通过后自动生成四官审计任务")
@@ -3164,16 +3179,16 @@ def parse_args() -> argparse.Namespace:
                         action="store_false",
                         help="禁用写前知识缺口调研")
     p_cont.add_argument("--use-beat-sheet", dest="use_beat_sheet",
-                        action="store_true", default=True,
-                        help="使用 Beat Sheet 流水线写作（默认开启）")
+                        action="store_true", default=False,
+                        help="使用 Beat Sheet 流水线写作（默认关闭，需主动选择）")
     p_cont.add_argument("--no-beat-sheet", dest="use_beat_sheet",
                         action="store_false",
                         help="禁用 Beat Sheet 流水线，回退到普通草稿模式")
     p_cont.add_argument("--beat-count", type=int, default=4,
                         help="每章 Beat 数量（3-5），默认 4")
     p_cont.add_argument("--auto-style-update", dest="auto_style_update",
-                        action="store_true", default=True,
-                        help="每 N 章自动更新风格基准（默认开启）")
+                        action="store_true", default=False,
+                        help="每 N 章自动更新风格基准（默认关闭）")
     p_cont.add_argument("--no-style-update", dest="auto_style_update",
                         action="store_false",
                         help="禁用风格基准自动更新")

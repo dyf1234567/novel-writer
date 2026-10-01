@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from common import ensure_dir, read_text, slugify, chapter_no_from_name, normalize_text
 from config import get_retrieval_config
 from performance import Tokenizer
+from canonical_state import accepted_files, begin_index, mark_index, require_current_index
 
 # 从集中配置加载检索相关常量
 _retrieval_config = get_retrieval_config()
@@ -451,12 +452,13 @@ def cleanup_stale_meta_files(retrieval_dir: Path, docs: List[Dict[str, object]])
 
 
 def build_index(project_root: Path, keyword_top_n: int = 20, incremental: bool = True) -> Dict[str, object]:
+    canonical_sig, incremental = begin_index(project_root, "legacy", incremental)
     manuscript_dir = project_root / "03_manuscript"
     retrieval_dir = project_root / "00_memory" / "retrieval"
     ensure_dir(retrieval_dir)
     index_file = retrieval_dir / "story_index.json"
 
-    chapters = sorted(manuscript_dir.glob("*.md"), key=lambda p: (parse_chapter_no(p.name), p.name))
+    chapters, acceptance_warnings = accepted_files(project_root)
     names = load_character_names(project_root)
     alias_map = load_character_alias_map(project_root)
 
@@ -547,6 +549,7 @@ def build_index(project_root: Path, keyword_top_n: int = 20, incremental: bool =
     cleaned_meta_files = cleanup_stale_meta_files(retrieval_dir, docs)
 
     index = {
+        "acceptance_warnings": acceptance_warnings,
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "project_root": str(project_root),
         "chapter_count": len(docs),
@@ -560,6 +563,7 @@ def build_index(project_root: Path, keyword_top_n: int = 20, incremental: bool =
     (retrieval_dir / "story_index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
     (retrieval_dir / "entity_chapter_map.json").write_text(json.dumps(entity_map, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    mark_index(project_root, "legacy", canonical_sig)
     return index
 
 
@@ -641,6 +645,7 @@ def retrieve(
     passage_max_chars: int,
 ) -> Dict[str, object]:
     docs = index.get("docs", [])
+    require_current_index(project_root, "legacy")
     query_tokens = tokenize(query)
     query_token_set = set(query_tokens)
     names = load_character_names(project_root)
@@ -857,9 +862,11 @@ def fts5_build_index(
     alias_map = load_character_alias_map(project_root)
     character_sig = hashlib.sha1(("|".join(names)).encode("utf-8")).hexdigest()[:16]
 
-    chapters = sorted(manuscript_dir.glob("*.md"), key=lambda p: (parse_chapter_no(p.name), p.name))
+    canonical_sig, incremental = begin_index(project_root, "fts5", incremental)
+    chapters, acceptance_warnings = accepted_files(project_root)
     conn = _fts5_connect(retrieval_dir)
-    reused = rebuilt = skipped_stubs = 0
+    reused = rebuilt = 0
+    skipped_stubs = len(acceptance_warnings)
     try:
         _fts5_init_schema(conn)
         current_files: set = set()
@@ -868,11 +875,11 @@ def fts5_build_index(
             if no <= 0:
                 skipped_stubs += 1
                 continue
-            current_files.add(path.name)
             text = read_text(path)
             if _NOVEL_FLOW_STUB in text or _BEAT_SHEET_STUB in text:
                 skipped_stubs += 1
                 continue
+            current_files.add(path.name)
             mtime = path.stat().st_mtime
             row = conn.execute(
                 "SELECT mtime FROM fts_chapters WHERE chapter_file=?", (path.name,)
@@ -949,10 +956,12 @@ def fts5_build_index(
     finally:
         conn.close()
 
+    mark_index(project_root, "fts5", canonical_sig)
     return {
         "ok": True,
         "cmd": "build",
         "engine": ENGINE_FTS5,
+        "acceptance_warnings": acceptance_warnings,
         "chapter_count": len(chapters),
         "reused_docs": reused,
         "rebuilt_docs": rebuilt,
@@ -987,6 +996,7 @@ def fts5_retrieve(
     加权规则与 legacy 精排保持一致（实体>事件>词面，近因/冲突加成），
     返回结构完全兼容 legacy retrieve()。
     """
+    require_current_index(project_root, "fts5")
     names = load_character_names(project_root)
     alias_map = load_character_alias_map(project_root)
     # 别名扩展 + 图谱邻接召回（邻居角色所在章节强制进入候选）
@@ -1323,6 +1333,7 @@ def _run_query_legacy(args: argparse.Namespace, project_root: Path) -> int:
         _, payload = _skipped_result_payload(args, project_root, trigger)
         return _emit_query_payload(args, project_root, payload)
 
+    require_current_index(project_root, "legacy")
     cache_file = retrieval_dir / "query_cache.json"
     idx_sig = index_signature(index)
     cache_key = make_cache_key(
@@ -1402,6 +1413,7 @@ def _run_query_fts5(args: argparse.Namespace, project_root: Path) -> int:
         _, payload = _skipped_result_payload(args, project_root, trigger)
         return _emit_query_payload(args, project_root, payload)
 
+    require_current_index(project_root, "fts5")
     conn = _fts5_connect(retrieval_dir)
     try:
         idx_sig = fts5_index_signature(conn)
@@ -1705,7 +1717,7 @@ def _run_query_hybrid(args: argparse.Namespace, project_root: Path) -> int:
     return _emit_query_payload(args, project_root, payload)
 
 
-def main() -> int:
+def _main() -> int:
     args = parse_args()
     project_root = Path(args.project_root).expanduser().resolve()
 
@@ -1731,6 +1743,7 @@ def main() -> int:
                 "chapter_count": index.get("chapter_count", 0),
                 "reused_docs": index.get("reused_docs", 0),
                 "rebuilt_docs": index.get("rebuilt_docs", 0),
+                "acceptance_warnings": index.get("acceptance_warnings", []),
                 "index_file": str(project_root / "00_memory" / "retrieval" / "story_index.json"),
             }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -1741,6 +1754,14 @@ def main() -> int:
     if getattr(args, "engine", ENGINE_LEGACY) == ENGINE_FTS5:
         return _run_query_fts5(args, project_root)
     return _run_query_legacy(args, project_root)
+
+
+def main() -> int:
+    try:
+        return _main()
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 2
 
 
 if __name__ == "__main__":

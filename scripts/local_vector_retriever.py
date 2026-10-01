@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 from common import ensure_dir, read_text
+from canonical_state import accepted_files, begin_index, mark_index, require_current_index
 from plot_rag_retriever import (
     _BEAT_SHEET_STUB,
     _NOVEL_FLOW_STUB,
@@ -151,9 +152,11 @@ def build_index(
     batch_size: int = 16,
 ) -> Dict[str, object]:
     manuscript_dir = project_root / "03_manuscript"
-    chapters = sorted(manuscript_dir.glob("*.md"), key=lambda p: (parse_chapter_no(p.name), p.name))
+    canonical_sig, incremental = begin_index(project_root, "vector", incremental)
+    chapters, acceptance_warnings = accepted_files(project_root)
     conn = _connect(project_root)
-    rebuilt = reused = skipped = passage_count = 0
+    rebuilt = reused = passage_count = 0
+    skipped = len(acceptance_warnings)
     current_files: set[str] = set()
     try:
         for chapter in chapters:
@@ -225,9 +228,11 @@ def build_index(
         conn.commit()
     finally:
         conn.close()
+    mark_index(project_root, "vector", canonical_sig)
     return {
         "ok": True,
         "engine": "vector",
+        "acceptance_warnings": acceptance_warnings,
         "provider": provider,
         "model": model,
         "chapter_count": len(current_files),
@@ -248,6 +253,7 @@ def query_index(
     model: str = DEFAULT_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_URL,
 ) -> Dict[str, object]:
+    require_current_index(project_root, "vector")
     conn = _connect(project_root)
     try:
         stored = dict(conn.execute("SELECT key, value FROM vector_meta").fetchall())
