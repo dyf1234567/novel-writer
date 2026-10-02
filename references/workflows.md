@@ -26,12 +26,12 @@ Develop or inspect the premise, character arcs, world rules, volumes, and chapte
 4. Retrieve historical passages only when they reduce a real continuity risk.
 5. Load optional style context when configured.
 6. Draft clean prose.
-7. Run blocking checks; run degraded or optional checks according to configuration.
+7. Run blocking checks and targeted semantic continuity review. Apply the default review cadence in `quality-gates.md`; run other checks according to configuration.
 8. If accepted, update memory and derived indexes. Otherwise store the draft outside canonical manuscript state.
 
 For batch writing, complete the state transition for one chapter before drafting the next. Pause at configured checkpoints or when a blocking conflict requires creative judgment.
 
-For long serials, do not treat a checkpoint as another automatic analyzer. When a human checkpoint is due, stop before creating or modifying the target chapter. At a volume boundary, collect a whole-volume audit and require its recorded verdict before checkpoint approval. Use hybrid retrieval when configured; if local embeddings fail, report the degraded FTS5 fallback.
+For long serials, when a 10-chapter creative checkpoint is due, review recent prose for style consistency before recording the creative decision, and stop before creating or modifying the target chapter until the checkpoint is resolved. At a volume boundary, collect a whole-volume audit, perform the scheduled multi-agent review, and record the verdict before checkpoint approval. Review major irreversible plot decisions with the red-team role before accepting the chapter. Use hybrid retrieval when configured; if local embeddings fail, report the degraded FTS5 fallback.
 
 ## Revise
 

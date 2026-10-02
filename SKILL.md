@@ -63,13 +63,15 @@ Generate clean manuscript prose. Never place analysis labels, TODOs, role descri
 
 Pacing quotas and cliffhanger frequency are opt-in project policies. The `continue-write` CLI records prose metrics as advisory signals by default; use `--strict-prose-metrics` only when the user wants numeric thresholds to block acceptance. An explicit Beat Sheet mode may enforce its own beat targets. Do not treat metric success as literary approval.
 
+Apply the default review cadence in [quality-gates.md](references/quality-gates.md): targeted continuity every chapter, a creative checkpoint and style review every 10 accepted chapters, whole-volume audit and multi-agent review at volume endings, and red-team review of major irreversible plot decisions. The host performs these semantic reviews and reports completed, pending, or unavailable; scripts alone do not complete them.
+
 ## Quality levels
 
 Checks have three severities:
 
 - **Blocking**: manuscript contamination, confirmed fact contradiction, invalid state transition, or a user-defined hard constraint. Stop before publishing or updating canonical memory.
 - **Degraded**: retrieval unavailable, a nonessential index stale, or an optional analyzer failed. Continue only with an explicit warning and a recorded fallback.
-- **Optional**: style audit, humanization pass, multi-agent editorial review, dashboard, and broad research unless the project configuration elevates them.
+- **Optional outside the scheduled cadence**: additional style audits and multi-agent reviews, humanization passes, dashboards, and broad research unless the project configuration elevates them.
 
 Do not claim that a workflow guarantees consistency at any word count. Report which checks ran, which were skipped, and what remains uncertain. See [quality-gates.md](references/quality-gates.md).
 

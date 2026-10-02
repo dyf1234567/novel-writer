@@ -26,6 +26,8 @@ $novel-writer 继续写当前小说下一章，并保持人物、时间线和伏
 
 `continue-write` 默认只报告字数、对话比例、重复度等机械指标，不用它们单独拦稿；确需数值硬门槛时添加 `--strict-prose-metrics`。Beat Sheet、广泛调研、批量审稿任务和四官审稿任务需主动开启。人工创作检查点及卷末审计要求仍默认开启；审稿任务文件不代表 Agent 已完成审稿。
 
+宿主默认按以下节奏实际审阅：每章针对性连续性检查；每 10 章创作检查点与文风复核；卷末全卷审计与多 Agent 审稿；重大剧情接受前红队审查。具体执行要求见 [审查节奏](references/quality-gates.md)。这些语义审阅由宿主完成；缺少多 Agent 工具时逐项审阅并说明执行方式。
+
 ## 来源与许可
 
 本项目包含基于 [leenbj/novel-creator-skill](https://github.com/leenbj/novel-creator-skill) 思路及材料的改编，并已获得原作者公开发布许可。详细说明见 [NOTICE.md](NOTICE.md)。上游未声明开源许可证，本仓库也暂未附加通用开源许可证；公开可见不等于自动授予复制、修改或再分发权。

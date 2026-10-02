@@ -33,7 +33,7 @@ At a confirmed volume boundary, run:
 scripts/volume_audit.py collect --project-root <path> --volume <n>
 ```
 
-The script creates structural evidence and a semantic review checklist. Automatic collection is not approval. Review manuscript evidence against characters, timeline, world rules, foreshadowing, volume promises, and protected reveals, then record one verdict:
+The script creates structural evidence and a semantic review checklist. Review manuscript evidence against characters, timeline, world rules, foreshadowing, volume promises, and protected reveals. Perform the volume-boundary multi-agent review described in `quality-gates.md`, then record one verdict:
 
 ```text
 scripts/volume_audit.py complete --project-root <path> --volume <n> --verdict pass --reviewer <name> --notes <summary>
@@ -44,7 +44,7 @@ Do not advance across a required volume boundary while the audit is missing, pen
 
 ## Human creative checkpoints
 
-Default cadence is every 10 accepted chapters and every volume boundary. A checkpoint is a creative decision, not a statistical quality check. Inspect at least one relevant manuscript chapter and decide whether to continue, revise the outline, remove or merge a plot line, change pacing, or stop.
+Default cadence is every 10 accepted chapters and every volume boundary. At each 10-chapter checkpoint, inspect representative recent prose and review style and character voices as described in `quality-gates.md`; then decide whether to continue, revise the outline, remove or merge a plot line, change pacing, or stop. Include the style review in the checkpoint notes. At a volume boundary, include the multi-agent findings in the volume verdict.
 
 Check status before drafting the target chapter:
 
