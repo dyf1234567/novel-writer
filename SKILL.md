@@ -13,6 +13,7 @@ Choose one primary mode before loading detailed guidance:
 
 - **Create or plan a project**: read [workflows.md](references/workflows.md), sections "Create" and "Plan".
 - **Explore plot alternatives, opening strategy, character agency, or pacing**: read [creative-toolkit.md](references/creative-toolkit.md) when the request warrants writing guidance.
+- **Design important characters, key relationship scenes, or diagnose weak motivation**: read [character-tension.md](references/character-tension.md). Use its cards selectively; ordinary scenes do not require them, and trauma, masks, or tragic outcomes are never mandatory.
 - **Draft or continue chapters**: read [workflows.md](references/workflows.md), section "Draft and continue", plus [project-contract.md](references/project-contract.md).
 - **Revise an existing chapter or outline**: read [workflows.md](references/workflows.md), section "Revise". Never infer permission to rewrite unaffected chapters.
 - **Inspect status, continuity, characters, timeline, or foreshadowing**: read [project-contract.md](references/project-contract.md). Inspection alone does not authorize edits.

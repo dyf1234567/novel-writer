@@ -18,6 +18,8 @@ Initialize planning, memory, manuscript, and editing areas. Do not build retriev
 
 Develop or inspect the premise, character arcs, world rules, volumes, and chapter anchors. Separate confirmed decisions from suggestions. Do not mark proposed details as canonical until accepted under the project's automation policy.
 
+For important character design or key relationship decisions, selectively use [character-tension.md](character-tension.md). Keep filled cards in the project's existing planning area, mark proposals and evidence, and do not require trauma, hidden masks, or tragic endings. Ordinary scenes and already credible characters need no full card.
+
 ## Draft and continue
 
 1. Inspect the current chapter state and last accepted chapter.

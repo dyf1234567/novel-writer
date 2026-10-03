@@ -49,6 +49,10 @@ Regex and metric checks produce evidence, not final literary judgments. Treat un
 
 If collaboration tools are unavailable, the host performs the same reviews sequentially and explicitly reports that independent multi-agent review did not run. Task generation is reported as pending until actual review is complete. Confirmed contradictions and user hard constraints require correction; stylistic preferences are suggestions for the author to decide. Store notes in the existing editing/checkpoint artifacts, without adding a new review database or configuration layer.
 
+## Character and causality review
+
+For character-and-causality review, apply [character-tension.md](character-tension.md) to relevant choices: motivation and knowledge, credible conflict and setup, both parties' agency, proportionate costs, and continuing consequences. Ask the major-plot red team to consider plausible alternatives and missing setup. Return passage-based findings and narrow repair suggestions; missing cards, trauma, masks, mirrored characters, or tragic outcomes are not failures. These are host semantic checks, not new numeric gates, and they do not add to the default review frequency.
+
 ## Reporting
 
 Return a compact result with:
