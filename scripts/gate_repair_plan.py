@@ -60,6 +60,19 @@ def map_failure_to_steps(failure: str) -> List[str]:
             "继续执行 /门禁检查。",
         ]
 
+    if f.startswith("ai_flavor_gate"):
+        if "未执行" in f or "未知" in f:
+            return [
+                "AI 痕迹检测未执行：重跑 /继续写（continue-write），"
+                "确保 copyedit_report.md 含「AI痕迹严重程度」结论行。",
+                "确认 text_humanizer.py 可正常运行后重新执行 /门禁检查。",
+            ]
+        return [
+            "执行 /校稿 完成两遍式去AI味润色，直至 AI痕迹严重程度降为「轻微」；"
+            "或设置 NOVEL_LLM_PROVIDER 环境变量后重跑 /继续写 由模型自动润色。",
+            "润色完成后重新执行 /门禁检查。",
+        ]
+
     if f.startswith("publish_ready"):
         return [
             "重新执行 /校稿，生成 publish_ready.md 且确保为最终发布稿。",
