@@ -46,40 +46,6 @@ class TestQualityEnhancementIntegration(unittest.TestCase):
         """测试后清理"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
     
-    def test_content_expansion_engine_integration(self):
-        """测试内容扩充引擎集成"""
-        from content_expansion_engine import expand_chapter_content
-        
-        # 模拟短章节
-        short_chapter = """
-# 第10章 测试章节
-
-主角走进了房间，环顾四周。
-
-"有人吗？"他问道。
-
-但没有人回答。
-"""
-        
-        # 扩充章节
-        context = {
-            'characters': {'protagonist': '张三'},
-            'plot_line': '测试情节',
-            'previous_ending': '上一章结尾',
-            'scene_setting': '测试场景'
-        }
-        
-        expanded = expand_chapter_content(
-            short_chapter,
-            target_chars=500,
-            chapter_no=10,
-            context=context
-        )
-        
-        # 验证扩充效果
-        self.assertGreater(len(expanded), len(short_chapter))
-        print(f"✓ 内容扩充: {len(short_chapter)} -> {len(expanded)} 字符")
-    
     def test_dynamic_draft_generator_integration(self):
         """测试动态草稿生成器集成"""
         from dynamic_draft_generator import generate_chapter_draft
@@ -177,16 +143,6 @@ class TestQualityEnhancementIntegration(unittest.TestCase):
         context = get_long_term_context(self.project_root, 10)
         print(f"2. 上下文获取完成: {len(context.recent_chapters)} 章摘要")
         
-        # 3. 扩充内容
-        from content_expansion_engine import expand_chapter_content
-        expanded = expand_chapter_content(
-            draft[:200],  # 使用部分草稿
-            target_chars=300,
-            chapter_no=10,
-            context={'characters': {}, 'plot_line': '测试'}
-        )
-        print(f"3. 内容扩充完成: {len(draft[:200])} -> {len(expanded)} 字符")
-        
         print("✓ 端到端工作流测试通过")
 
 
@@ -255,24 +211,6 @@ class TestPerformanceBenchmarks(unittest.TestCase):
     def tearDown(self):
         """测试后清理"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-    
-    def test_content_expansion_performance(self):
-        """测试内容扩充性能"""
-        import time
-        from content_expansion_engine import expand_chapter_content
-        
-        # 准备测试数据
-        test_text = "测试文本。" * 50
-        context = {'characters': {}, 'plot_line': '测试'}
-        
-        # 计时
-        start_time = time.time()
-        result = expand_chapter_content(test_text, 500, 10, context)
-        elapsed_time = time.time() - start_time
-        
-        # 验证性能
-        self.assertLess(elapsed_time, 5.0)  # 应该在5秒内完成
-        print(f"✓ 内容扩充性能: {elapsed_time:.2f}秒")
     
     def test_draft_generation_performance(self):
         """测试草稿生成性能"""

@@ -120,16 +120,13 @@ def _extract_event_types_from_constraints(constraints: object) -> List[str]:
     return [str(t) for t in rec_types if str(t) in _VALID_EVENT_TYPES]
 
 
-# 环境变量：标记当前是否在 Claude Code / Codex 等 CLI 工具中运行
-# 设置此变量后，系统将使用 MCP Codex 工具进行写作，无需外部 API Key
-_CLAUDE_CODE_MODE = os.environ.get("CLAUDE_CODE_MODE", "") or os.environ.get("CODEX_MODE", "")
+# 环境变量 CLAUDE_CODE_MODE / CODEX_MODE 及 _write_with_mcp_codex 信号文件路径
+# 已在 8.1.1 移除：该路径自引入起从未工作（write_json 未定义即 NameError），
+# 且 .flow/mcp_write_request.json 无任何读取方。写作一律走 novel_chapter_writer。
 
 
 def _has_llm_config(args: argparse.Namespace, project_root: Path) -> bool:
     """Check if LLM configuration is available for writing."""
-    # 优先检查是否在 Claude Code / Codex 模式下
-    if _CLAUDE_CODE_MODE:
-        return True
     if getattr(args, "llm_provider", None) or getattr(args, "llm_api_key", None):
         return True
     if os.environ.get("NOVEL_LLM_PROVIDER") or os.environ.get("NOVEL_AI_PROVIDER"):
@@ -148,9 +145,6 @@ def _resolve_draft_provider(args: argparse.Namespace, project_root: Path) -> str
     raw = str(getattr(args, "draft_provider", "auto") or "auto")
     if raw in {"template", "llm"}:
         return raw
-    # Claude Code 模式下默认使用 llm（通过 MCP Codex）
-    if _CLAUDE_CODE_MODE:
-        return "llm"
     return "llm" if _has_llm_config(args, project_root) else "template"
 
 
@@ -224,37 +218,6 @@ def _build_pacing_rewrite_prompt(query: str, failures: List[str]) -> str:
     )
 
 
-def _write_with_mcp_codex(
-    project_root: Path,
-    chapter_path: Path,
-    prompt: str,
-) -> bool:
-    """Write chapter using MCP Codex tool (Claude Code integration).
-
-    This function is called when CLAUDE_CODE_MODE is enabled, allowing
-    the system to use the current Claude Code session for writing without
-    requiring external API keys.
-
-    Returns True on success.
-    """
-    # This is a placeholder that signals the orchestrator to use MCP Codex
-    # The actual MCP call is handled by the calling code (Claude Code agent)
-    # We write a signal file that the agent can detect and respond to
-    signal_file = project_root / ".flow" / "mcp_write_request.json"
-    ensure_dir(signal_file.parent)
-
-    signal_data = {
-        "chapter_path": str(chapter_path),
-        "prompt": prompt,
-        "timestamp": dt.datetime.now().isoformat(),
-    }
-    write_json(signal_file, signal_data)
-
-    # Return False to indicate this needs to be handled by the caller
-    # The actual MCP Codex call will be made by the Claude Code agent
-    return False
-
-
 def _rewrite_chapter_with_llm(
     project_root: Path,
     chapter_path: Path,
@@ -265,9 +228,6 @@ def _rewrite_chapter_with_llm(
     if not _has_llm_config(args, project_root):
         return False
 
-    # Claude Code 模式：使用 MCP Codex
-    if _CLAUDE_CODE_MODE:
-        return _write_with_mcp_codex(project_root, chapter_path, prompt)
     try:
         from novel_chapter_writer import write_chapter  # type: ignore[import]
         overrides: Dict[str, object] = {"writing_prompt": prompt}
@@ -1250,11 +1210,15 @@ def generate_draft_text(project_root: Path, chapter_path: Path, query: str, min_
 
 
 def improve_text_minimally(text: str, query: str) -> str:
-    extra = (
-        f"补充推进：围绕“{query}”再加入一段行动结果、一段对话冲突、一段章末钩子，"
-        "确保本章既有情节推进也有角色关系变化。"
-    )
-    return text.rstrip() + "\n\n" + extra + "\n"
+    """机械补写已改为 no-op（8.1.1 修复）。
+
+    历史实现把「补充推进：围绕"<query>"再加入一段行动结果…」追加进正文，
+    存在两个问题：其一，指令文本是元信息，混入正文违反铁律；其二，调用方
+    传入的 query 是完整拼装上下文（章纲+摘要+人物+检索片段+风格样章），
+    追加等于把数千字规划原文粘进章节。机械拼接无法产出真正的叙事内容，
+    因此不再改写正文；调用方检测到无变化后记录警告，引导人工扩写或配置 LLM。
+    """
+    return text
 
 
 def _generate_beat_draft(
@@ -2184,6 +2148,10 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         # 并检查本项目人格层是否已建立；未建立时提醒用户去填（不自动代填）。
         style_fewshot_info: Dict[str, object] = {}
         persona_reminder_msg: str = ""
+        # 延迟合入的运行期警告。8.1.1 修复：此前 persona 段在 result 赋值前
+        # 直接调用 result.setdefault，触发 UnboundLocalError 并被下方 except
+        # 吞掉，导致人格层提醒（warnings / 产物文件之外的 JSON 链路）整体失效。
+        pending_warnings: List[str] = []
         try:
             from style_fewshot import build_style_injection
 
@@ -2206,7 +2174,7 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
             _persona = _sfs.get("persona") or {}
             if not _persona.get("established"):
                 persona_reminder_msg = str(_persona.get("reminder", ""))
-                result.setdefault("warnings", []).append(
+                pending_warnings.append(
                     "persona_setup: " + str(_persona.get("reason", ""))
                 )
                 # 写入 persistent 提醒产物（与门禁产物同目录，写书时可见）
@@ -2220,13 +2188,16 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
                     )
                 except Exception:
                     pass
-                # 醒目提醒用户（不阻断写作，仅提示去建立）
-                print(persona_reminder_msg)
+                # 醒目提醒用户（不阻断写作，仅提示去建立）。
+                # 走 stderr：executor 约定 stdout 只输出 JSON，
+                # 此前该 print 因上游 bug 未执行，修复后曾污染 JSON 解析。
+                sys.stderr.write(persona_reminder_msg + "\n")
         except Exception as _sfs_exc:
             style_fewshot_info = {
                 "enabled": getattr(args, "enable_style_fewshot", True),
                 "error": repr(_sfs_exc)[:200],
             }
+            pending_warnings.append("style_fewshot: " + repr(_sfs_exc)[:120])
 
         writing_query = "\n\n".join(query_sections)
 
@@ -2399,7 +2370,16 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         if not draft_mode and args.auto_improve:
             while (not quality_after["passed"]) and improve_rounds < args.auto_improve_rounds:
                 txt = read_text(chapter_path)
-                write_text(chapter_path, improve_text_minimally(txt, writing_query))
+                improved = improve_text_minimally(txt, writing_query)
+                if improved == txt:
+                    # 8.1.1：机械补写为 no-op，正文不得被指令文本污染；
+                    # 停止空转并记录警告，引导人工扩写或配置 LLM。
+                    pending_warnings.append(
+                        "auto_improve: 机械指标未达标且无 LLM 自动补写可用，"
+                        "请人工扩写本章，或配置 --llm-provider 后重跑 continue-write"
+                    )
+                    break
+                write_text(chapter_path, improved)
                 quality_after = evaluate_quality(read_text(chapter_path), args)
                 improve_rounds += 1
 
@@ -2659,6 +2639,11 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
                 "manifest": four_official_manifest,
             } if gate_passed_final and chapter_path else None,
         }
+        if pending_warnings:
+            # 去重合入延迟警告（persona 未建立 / 风格段异常 / 自动补写不可用）
+            result["warnings"] = list(
+                dict.fromkeys(list(result.get("warnings", [])) + pending_warnings)
+            )
 
         if draft_mode and not args.auto_draft:
             result["next_step"] = "章节仍是占位草稿，请补全正文后再次执行 /继续写，或启用 --auto-draft。"
@@ -3114,8 +3099,6 @@ def parse_args() -> argparse.Namespace:
     p_cont.add_argument("--min-sentences", type=int, default=8)
     p_cont.add_argument("--min-content-density", type=float, default=0.7,
                         help="正文密度要求（排除标记、注释等），默认0.7")
-    p_cont.add_argument("--max-chapter-variance", type=float, default=0.3,
-                        help="相邻章节字数差异限制，默认0.3（30%%）")
     p_cont.add_argument("--max-ai-phrase-density", type=float, default=0.05,
                         help="AI高频词密度限制，默认0.05（5%%）")
     p_cont.add_argument("--strict-prose-metrics", action="store_true", default=False,

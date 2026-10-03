@@ -79,6 +79,12 @@ def check_file(path: Path, min_bytes: int, chapter_mtime: float) -> Tuple[bool, 
 
 def check_publish_ready(path: Path, keywords: List[str]) -> Tuple[bool, str]:
     txt = path.read_text(encoding="utf-8", errors="ignore")
+    # 失败标记优先（8.1.1 修复）：executor 失败时写入「不通过 / FAIL」，
+    # 而成功关键词「通过」是「不通过」的子串——先查成功词会把失败误判为
+    # 通过，导致本检查恒真、零保护。
+    for fail_marker in ("不通过", "不建议发布", "FAIL"):
+        if fail_marker in txt:
+            return False, f"命中失败标记: {fail_marker}"
     for kw in keywords:
         if kw in txt:
             return True, f"命中发布关键字: {kw}"

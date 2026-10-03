@@ -11,48 +11,6 @@ from typing import Dict, List, Set, Optional
 
 
 @dataclass
-class QualityConfig:
-    """质量检查配置"""
-    
-    # AI短语黑名单（去AI化检查）
-    ai_phrase_blacklist: List[str] = field(default_factory=lambda: [
-        "不禁", "仿佛", "映入眼帘", "心中暗道", "宛如",
-        "似乎", "好像", "可能", "大概", "也许",
-        "不由得", "不禁感到", "内心深处", "默默地",
-    ])
-    
-    # 占位章检测参数
-    max_stub_effective_chars: int = 800
-    stub_marker: str = "<!-- NOVEL_FLOW_STUB -->"
-    
-    # 质量下限检查
-    min_chars: int = 1200
-    min_paragraphs: int = 6
-    min_dialogue_ratio: float = 0.03
-    
-    # 发布判定关键词
-    publish_keywords: List[str] = field(default_factory=lambda: [
-        "可发布", "通过", "PASS", "审核通过", "质量合格"
-    ])
-    
-    @classmethod
-    def from_env(cls) -> "QualityConfig":
-        """从环境变量加载配置"""
-        config = cls()
-        
-        if "QUALITY_MIN_CHARS" in os.environ:
-            config.min_chars = int(os.environ["QUALITY_MIN_CHARS"])
-        
-        if "QUALITY_MIN_PARAGRAPHS" in os.environ:
-            config.min_paragraphs = int(os.environ["QUALITY_MIN_PARAGRAPHS"])
-            
-        if "QUALITY_MIN_DIALOGUE_RATIO" in os.environ:
-            config.min_dialogue_ratio = float(os.environ["QUALITY_MIN_DIALOGUE_RATIO"])
-        
-        return config
-
-
-@dataclass
 class RetrievalConfig:
     """RAG检索配置"""
     
@@ -104,62 +62,12 @@ class RetrievalConfig:
         return config
 
 
-@dataclass
-class FlowConfig:
-    """流程执行配置"""
-    
-    # 执行锁配置
-    lock_timeout_seconds: int = 300  # 5分钟超时
-    lock_check_interval: float = 0.5  # 检查间隔
-    
-    # 快照配置
-    snapshot_max_count: int = 10  # 最大保留快照数
-    
-    # 重试配置
-    max_auto_retry_rounds: int = 2
-    retry_delay_seconds: float = 1.0
-    
-    # 门禁配置
-    gate_artifacts_min_bytes: int = 20
-    
-    # 存储路径（相对于项目根目录）
-    memory_dir: str = "00_memory"
-    manuscript_dir: str = "03_manuscript"
-    knowledge_base_dir: str = "02_knowledge_base"
-    gate_artifacts_dir: str = "04_editing/gate_artifacts"
-    retrieval_dir: str = "00_memory/retrieval"
-    flow_dir: str = ".flow"
-    
-    @classmethod
-    def from_env(cls) -> "FlowConfig":
-        """从环境变量加载配置"""
-        config = cls()
-        
-        if "FLOW_LOCK_TIMEOUT" in os.environ:
-            config.lock_timeout_seconds = int(os.environ["FLOW_LOCK_TIMEOUT"])
-        
-        if "FLOW_MAX_RETRY" in os.environ:
-            config.max_auto_retry_rounds = int(os.environ["FLOW_MAX_RETRY"])
-        
-        return config
-
-
 # =============================================================================
 # 全局配置实例
 # =============================================================================
 
 # 懒加载的单例模式
-_quality_config: Optional[QualityConfig] = None
 _retrieval_config: Optional[RetrievalConfig] = None
-_flow_config: Optional[FlowConfig] = None
-
-
-def get_quality_config() -> QualityConfig:
-    """获取质量配置（懒加载）"""
-    global _quality_config
-    if _quality_config is None:
-        _quality_config = QualityConfig.from_env()
-    return _quality_config
 
 
 def get_retrieval_config() -> RetrievalConfig:
@@ -170,32 +78,28 @@ def get_retrieval_config() -> RetrievalConfig:
     return _retrieval_config
 
 
-def get_flow_config() -> FlowConfig:
-    """获取流程配置（懒加载）"""
-    global _flow_config
-    if _flow_config is None:
-        _flow_config = FlowConfig.from_env()
-    return _flow_config
-
-
 # =============================================================================
 # 版本信息
 # =============================================================================
 
-__version__ = "8.1.0"
-# novel-writer 8.1.0 变更：
-# - 修复 text_humanizer.detect_patterns 缺少 ai_score / vocab_hits 等顶层字段，
-#   导致 novel_chapter_writer 自动去AI味润色分支永不触发（死代码）的问题
-# - 新增 Category 8 对话同质化检测（dialogue_monotone）
-# - 去AI味升级为每章强制铁律：chapter_gate_check 新增 ai_flavor_gate 阻断项
-# - 测试脚本改用可移植解释器解析，修复 Windows 兼容性
+__version__ = "8.1.1"
+# novel-writer 8.1.1 变更（审计修复轮）：
+# - 修复 continue_write 中 result 提前使用导致的 UnboundLocalError，
+#   人格层提醒（persona_setup 警告）恢复进入输出 JSON
+# - improve_text_minimally 改为 no-op：不再把指令文本与完整拼装上下文
+#   粘进章节正文；无 LLM 时记录警告并停止空转
+# - check_publish_ready 失败标记优先：修复「不通过」被成功词「通过」
+#   子串误判、检查恒真的问题
+# - 删除从未工作的 MCP Codex 免密钥路径（write_json 未定义即 NameError）
+# - 死件清理：auto_novel_writer.py、content_expansion_engine.py、
+#   --max-chapter-variance、QualityConfig / FlowConfig
+# 8.1.0 变更：
+# - text_humanizer 顶层兼容字段 + Category 8 对话同质化检测（修复 writer
+#   自动去AI味润色死代码）；ai_flavor_gate 每章铁律；CLI --version；
+#   可移植 Python 解释器解析（修复 Windows 测试）
 PROG_NAME = "novel-writer"
 __all__ = [
-    "QualityConfig",
-    "RetrievalConfig", 
-    "FlowConfig",
-    "get_quality_config",
+    "RetrievalConfig",
     "get_retrieval_config",
-    "get_flow_config",
     "PROG_NAME",
 ]

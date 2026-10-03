@@ -1071,7 +1071,7 @@ def write_chapter(
     dry_run: bool = False,
     context_window: int = 5,
 ) -> Dict[str, Any]:
-    """自动写作入口，可被外部脚本（如 auto_novel_writer.py）调用。
+    """自动写作入口，可被外部脚本调用。
 
     Args:
         project_root: 项目根目录
