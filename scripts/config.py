@@ -182,7 +182,14 @@ def get_flow_config() -> FlowConfig:
 # 版本信息
 # =============================================================================
 
-__version__ = "8.0.0"
+__version__ = "8.1.0"
+# novel-writer 8.1.0 变更：
+# - 修复 text_humanizer.detect_patterns 缺少 ai_score / vocab_hits 等顶层字段，
+#   导致 novel_chapter_writer 自动去AI味润色分支永不触发（死代码）的问题
+# - 新增 Category 8 对话同质化检测（dialogue_monotone）
+# - 去AI味升级为每章强制铁律：chapter_gate_check 新增 ai_flavor_gate 阻断项
+# - 测试脚本改用可移植解释器解析，修复 Windows 兼容性
+PROG_NAME = "novel-writer"
 __all__ = [
     "QualityConfig",
     "RetrievalConfig", 
@@ -190,4 +197,5 @@ __all__ = [
     "get_quality_config",
     "get_retrieval_config",
     "get_flow_config",
+    "PROG_NAME",
 ]

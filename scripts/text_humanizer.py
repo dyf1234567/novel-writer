@@ -148,6 +148,17 @@ FORMAL_INTRUSION: List[Tuple[str, str]] = [
 # Category 7 - 排比三连（连续三个相同句式）
 # 通过正则检测"A、B、C"或"A，B，C"中结构相似的片段
 
+# Category 8 - 对话同质化（novel-writer 新增：对话标签动词多样性代理检测）
+# 说明：这是对"所有角色说话方式雷同"的词法代理信号，仅作 advisory，
+# 不构成对对话质量的最终判定（见 references/quality-gates.md 的信号原则）。
+DIALOGUE_TAG_PATTERN = re.compile(
+    "(说道|笑道|问道|答道|喊道|喝道|叹道|骂道|嘀咕道|嘟囔道|"
+    "沉声道|低声道|轻声道|淡然道|冷笑道|缓缓说道|淡淡地说)"
+)
+DIALOGUE_QUOTE_PATTERN = re.compile(r"[“\"][^“”\"]{2,}[”\"]")
+DIALOGUE_MIN_SAMPLES = 6   # 引号对话少于该数量不做判定（样本不足）
+DIALOGUE_MAX_TAG_KINDS = 2 # 对话 ≥ MIN_SAMPLES 且标签动词种类 ≤ 该值 → 同质化
+
 # ---------------------------------------------------------------------------
 # 检测核心
 # ---------------------------------------------------------------------------
@@ -267,6 +278,14 @@ def detect_patterns(text: str) -> Dict:
     trio_count = len(trio_matches)
     trio_examples = trio_matches[:3]
 
+    # --- Category 8: 对话同质化（novel-writer 新增） ---
+    dialogue_quotes = DIALOGUE_QUOTE_PATTERN.findall(body)
+    dialogue_tag_kinds = sorted(set(DIALOGUE_TAG_PATTERN.findall(body)))
+    dialogue_monotone = (
+        len(dialogue_quotes) >= DIALOGUE_MIN_SAMPLES
+        and 0 < len(dialogue_tag_kinds) <= DIALOGUE_MAX_TAG_KINDS
+    )
+
     # --- 综合评分 ---
     issues: List[str] = []
     if vocab_hits:
@@ -285,10 +304,27 @@ def detect_patterns(text: str) -> Dict:
         issues.append(f"正式语体入侵：{', '.join(h['phrase'] for h in formal_hits[:3])}")
     if trio_count > 3:
         issues.append(f"排比三连过多：{trio_count} 处")
+    if dialogue_monotone:
+        issues.append(
+            f"对话标签同质化：{len(dialogue_quotes)} 句对话仅使用 "
+            f"{len(dialogue_tag_kinds)} 种标签动词（{', '.join(dialogue_tag_kinds[:3])}），"
+            "需按角色性格差异化说话方式"
+        )
 
     # 严重程度评级
     issue_count = len(issues)
     severity = "low" if issue_count <= 1 else ("medium" if issue_count <= 3 else "high")
+
+    # AI 痕迹分数（novel-writer 新增，供 novel_chapter_writer 等程序化调用）。
+    # 量纲约定：0-100；low 档 ≤25、medium 档 >25、high 档 ≥60，
+    # 因此消费方沿用 ">25 启动润色" 的历史阈值时，触发时机与
+    # novel_flow_executor 链路的 "severity >= medium" 语义保持一致。
+    ai_score = min(
+        100,
+        issue_count * 15
+        + (5 if adverb_flagged else 0)
+        + min(int(vocab_density), 5),
+    )
 
     return {
         "char_count": char_count,
@@ -296,6 +332,16 @@ def detect_patterns(text: str) -> Dict:
         "severity": severity,
         "issue_count": issue_count,
         "issues": issues,
+        # ---- novel-writer 兼容层：供 novel_chapter_writer 自动润色分支直接读取 ----
+        # 历史版本 writer 读取 ai_score / vocab_hits / weak_adverb_density /
+        # para_summary_hits / dialogue_monotone，但 detect 从未返回这些顶层字段，
+        # 导致自动二次润色分支永不触发（死代码）。此处补齐顶层别名，
+        # details 内的规范结构保持不变，老消费方与新消费方均可工作。
+        "ai_score": ai_score,
+        "vocab_hits": vocab_hits,
+        "weak_adverb_density": round(adverb_density, 2),
+        "para_summary_hits": summary_examples[:5],
+        "dialogue_monotone": dialogue_monotone,
         "details": {
             "ai_vocab": {
                 "total_count": total_vocab_count,
@@ -326,6 +372,11 @@ def detect_patterns(text: str) -> Dict:
             "rule_of_three": {
                 "count": trio_count,
                 "examples": trio_examples,
+            },
+            "dialogue_variety": {
+                "quote_count": len(dialogue_quotes),
+                "tag_kinds": dialogue_tag_kinds,
+                "monotone": dialogue_monotone,
             },
         },
     }

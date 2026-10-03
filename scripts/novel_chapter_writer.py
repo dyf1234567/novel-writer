@@ -1171,7 +1171,8 @@ def write_chapter(
                 ai_score_before = float(detection.get("ai_score", 0))
                 if ai_score_before > 25:
                     print(
-                        f"[人性化] AI痕迹分数 {ai_score_before:.1f}，"
+                        f"[人性化] AI痕迹分数 {ai_score_before:.1f}"
+                        f"（severity={detection.get('severity', '?')}），"
                         "启动自动二次润色..."
                     )
                     humanized = _run_humanizer_pass(
