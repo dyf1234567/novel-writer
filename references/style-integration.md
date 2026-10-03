@@ -1,61 +1,49 @@
-# Author-style integration
+# 作者风格集成
 
-Read this reference only when a project uses an author-derived style pack or the user asks for style transfer.
+仅当项目使用作者风格包、或用户要求风格迁移时才读本参考。
 
-## Separation of concerns
+## 关注点分离
 
-Keep three stores independent:
+保持三个存储相互独立：
 
-- author style: transferable language, narrative, and scene features;
-- source lore: original characters, settings, events, and terminology;
-- project memory: the user's characters, setting, timeline, and plot.
+- 作者风格：可迁移的语言、叙事与场景特征；
+- 原作设定：原作的人物、设定、事件与术语；
+- 项目记忆：用户自己的人物、设定、时间线与剧情。
 
-Source lore is disabled by default. Enabling an author style must not enable original-world retrieval.
+原作设定默认关闭。启用作者风格不得连带启用原作世界检索。
 
-Pure-style mode also omits verbatim source excerpts. Inject only abstract traits
-and retrieval-derived metrics. Source excerpts require the user's explicit
-request and `--style-source-excerpts`; never enable this flag from `style_author`
-alone.
+纯风格模式同样省略原作原文摘录。只注入抽象特征与检索得到的指标。原作摘录需要用户显式请求并加 `--style-source-excerpts`；绝不仅凭 `style_author` 就开启该开关。
 
-## Author pack location
+## 作者包位置
 
-Author corpora and indexes are mutable user data and do not belong inside this Skill. Resolve them in this order:
+作者语料与索引是可变的用户数据，不属于本 Skill 内部。按以下顺序解析：
 
-1. an explicit `--authors-root` argument;
-2. `AUTHOR_STYLE_HOME`;
-3. a project configuration value;
-4. the user's data directory fallback implemented by the script.
+1. 显式 `--authors-root` 参数；
+2. `AUTHOR_STYLE_HOME`；
+3. 项目配置值；
+4. 脚本实现的用户数据目录兜底。
 
-Never copy a source corpus into a novel project or cloud prompt wholesale.
+绝不把原作语料整份复制进小说项目或云端提示词。
 
-The preferred provider is the independent `style-writer` Skill. Locate it from
-`STYLE_WRITER_SKILL_HOME` or as a sibling of `novel-writer`. Its stable callable
-interface is `scripts/style_engine.py::prepare_context(author, query, ...)`.
-If it is absent or its pack cannot be resolved, `style_fewshot.py` may fall back
-to the legacy local `style_corpus` store.
+首选提供方是独立的 `style-writer` Skill。通过 `STYLE_WRITER_SKILL_HOME` 或作为 `novel-writer` 的同级目录定位。其稳定调用接口是 `scripts/style_engine.py::prepare_context(author, query, ...)`。它缺失或其风格包无法解析时，`style_fewshot.py` 可兜底到旧版本地 `style_corpus` 存储。
 
-Use `STYLE_INDEX_HOME` for machine-local indexes and a pack-specific environment
-variable such as `JIANGNAN_CORPUS_ROOT` for source files. Neither path belongs in
-the novel project. The author pack remains usable in static-profile mode when an
-index, embedding model, or embedding server is unavailable.
+机器本地索引使用 `STYLE_INDEX_HOME`，源文件使用风格包专属环境变量（如 `JIANGNAN_CORPUS_ROOT`）。这两个路径都不属于小说项目。索引、embedding 模型或 embedding 服务不可用时，作者包在静态档案模式下仍可使用。
 
-## Style context
+## 风格上下文
 
-Assemble a compact style context from:
+从以下要素装配紧凑的风格上下文：
 
-- stable author-level features;
-- one dominant work family or period;
-- current genre and scene features;
-- the project's own character voices;
-- a small diverse set of retrieved reference passages;
-- negative constraints preventing source characters, lore, catchphrases, and close paraphrase.
+- 稳定的作者级特征；
+- 一个主导的作品族或时期；
+- 当前题材与场景特征；
+- 项目自身的人物声音；
+- 一小组多样的检索参考文段；
+- 防止原作人物、设定、口头禅与近似复述的负向约束。
 
-Do not average incompatible periods by default. Use automatic routing when metadata makes the choice clear; otherwise state the chosen family or ask when the choice would materially change the result.
+默认不对互不兼容的时期做平均。元数据能明确判断时使用自动路由；否则说明所选的作品族，或当选择会实质影响结果时询问用户。
 
-Pin a family with `style_family` in `.novel_writer_config.yaml` or with
-`--style-family`. The command-line value wins. If neither is present, use the
-author pack's `default_family` and report it in the prepared context.
+在 `.novel_writer_config.yaml` 中用 `style_family` 或用 `--style-family` 钉定作品族。命令行取值优先。两者都没有时，使用作者包的 `default_family` 并在装配好的上下文中报告。
 
-## Output checks
+## 产物检查
 
-Use metric audits as soft evidence unless a project explicitly defines a hard band. Before release or sharing, run source-overlap checks and inspect flagged passages. Never claim authorship by the reference author or present generated work as an official continuation.
+指标审计作为软证据，除非项目显式定义了硬区间。发布或分享前，运行原作重合度检查并人工查看被标记的文段。绝不声称参考作者本人创作，也不把生成内容当作官方续作呈现。

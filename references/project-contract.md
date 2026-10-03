@@ -1,64 +1,64 @@
-# Project contract
+# 项目契约
 
-Read this reference for drafting, continuity inspection, or any operation that changes durable project state.
+撰写、连续性查阅，或任何改动持久项目状态的操作，读本参考。
 
-## Ownership of facts
+## 事实优先级
 
-Use this precedence when facts conflict:
+事实冲突时按以下优先级裁决：
 
-1. explicit user correction or confirmation;
-2. accepted manuscript chapters;
-3. approved outline and world rules;
-4. structured trackers and graph state;
-5. generated chapter summaries;
-6. retrieval results and model inference.
+1. 用户的显式纠正或确认；
+2. 已接受的正文章节；
+3. 已批准的大纲与世界规则；
+4. 结构化追踪器与图谱状态；
+5. 生成的章节摘要；
+6. 检索结果与模型推断。
 
-Never overwrite a higher-precedence source with a lower-precedence inference.
+绝不用低优先级的推断覆盖高优先级的来源。
 
-## Expected project areas
+## 项目区域约定
 
-Existing projects may use different names. Map by purpose instead of forcing a migration:
+既有项目可能使用不同命名。按用途映射，而不是强迫迁移：
 
-- planning: premise, outline, volume and chapter anchors;
-- memory: characters, world state, timeline, foreshadowing, chapter summaries;
-- manuscript: accepted chapter prose;
-- retrieval: indexes and passage metadata derived from accepted prose;
-- editing: audit reports, repair plans, and noncanonical drafts.
+- 规划：前提、大纲、卷与章节锚点；
+- 记忆：人物、世界状态、时间线、伏笔、章节摘要；
+- 正文：已接受章节的正文；
+- 检索：由已接受正文派生的索引与段落元数据；
+- 编辑：审计报告、修复计划、未入规范的草稿。
 
-Create only directories the selected workflow needs. Preserve additional user files.
+只创建所选工作流需要的目录。保留用户的额外文件。
 
-## Chapter state transitions
+## 章节状态迁移
 
-Use explicit transitions:
+使用显式迁移：
 
 ```text
 planned -> drafted -> reviewed -> accepted -> indexed
                    \-> needs_revision
 ```
 
-- `drafted` prose is not canonical memory.
-- `accepted` requires user acceptance or the project's configured automation policy plus all blocking checks.
-- only accepted chapters enter durable summaries, graphs, and retrieval indexes.
-- revision of an accepted chapter invalidates derived summaries, graph facts, and retrieval entries for that chapter until rebuilt.
+- `drafted` 的正文不是规范记忆。
+- `accepted` 需要用户接受、或项目配置的自动化策略加全部阻断级检查通过。
+- 只有已接受章节进入持久摘要、图谱与检索索引。
+- 已接受章节的修订会使该章的派生摘要、图谱事实与检索条目失效，直到重建完成。
 
-## Continuity context
+## 连续性上下文
 
-Prefer a compact context assembled from relevant state over reading the entire project. Include:
+优先使用从相关状态装配的紧凑上下文，而不是通读整个项目。包含：
 
-- the current anchor and goal;
-- recent accepted chapter summaries;
-- active characters and their aliases, locations, capabilities, and relationships;
-- timeline constraints;
-- unresolved and due foreshadowing;
-- retrieved passages supporting current entities or plot threads;
-- cascade warnings caused by outline changes.
+- 当前锚点与目标；
+- 近期已接受章节摘要；
+- 活跃人物及其别名、位置、能力与关系；
+- 时间线约束；
+- 未解决与已到期的伏笔；
+- 支撑当前实体或剧情线的检索文段；
+- 大纲变更引起的级联警告。
 
-When a retrieval result conflicts with canonical state, surface the conflict instead of blending both versions.
+检索结果与规范状态冲突时，把冲突摆出来，而不是把两个版本调和在一起。
 
-## Safe mutations
+## 安全变更
 
-- Make narrow updates after each accepted chapter.
-- Before a broad outline revision, identify the affected chapter range and preserve recoverable prior state.
-- Rebuild only derived artifacts affected by the change.
-- A failed optional or derived update should not corrupt accepted manuscript text.
-- Never edit the user's source corpus or external author pack as part of a novel chapter workflow.
+- 每个已接受章节之后做窄幅更新。
+- 大范围修订大纲前，界定受影响章节范围并保留可恢复的先前状态。
+- 只重建受本次变更影响的派生产物。
+- 可选或派生更新失败，不得损坏已接受正文。
+- 绝不在小说章节工作流中编辑用户的原作语料或外部作者包。

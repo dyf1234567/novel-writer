@@ -1,59 +1,59 @@
-# Workflows
+# 工作流
 
-Load only the section matching the current request.
+只加载与当前请求匹配的小节。
 
-## Create
+## 创建（Create）
 
-Collect or infer a concise project card:
+收集或推断一份简洁的项目卡：
 
-- premise and genre;
-- viewpoint and tense;
-- target scope;
-- automation level: manual, checkpointed, or automatic;
-- user-defined hard constraints.
+- 前提与题材；
+- 视角与时态；
+- 目标篇幅；
+- 自动化级别：手动、按检查点确认、或全自动；
+- 用户自定义硬约束。
 
-Initialize planning, memory, manuscript, and editing areas. Do not build retrieval indexes before accepted manuscript content exists. Generate an outline at the granularity the user requested; a short serial does not require a million-word roadmap.
+初始化计划、记忆、正文与编辑区域。已接受正文出现之前，不构建检索索引。按用户要求的粒度生成大纲；短篇连载不需要百万字路线图。
 
-## Plan
+## 规划（Plan）
 
-Develop or inspect the premise, character arcs, world rules, volumes, and chapter anchors. Separate confirmed decisions from suggestions. Do not mark proposed details as canonical until accepted under the project's automation policy.
+展开或检视前提、人物弧线、世界规则、卷结构与章节锚点。把已确认的决策与建议分开。提案细节在按项目自动化策略被接受之前，不得标记为规范（canonical）。
 
-For important character design or key relationship decisions, selectively use [character-tension.md](character-tension.md). Keep filled cards in the project's existing planning area, mark proposals and evidence, and do not require trauma, hidden masks, or tragic endings. Ordinary scenes and already credible characters need no full card.
+涉及重要人物设计或关键关系决策时，有选择地使用 [character-tension.md](character-tension.md)。填写好的卡片保存在项目既有的规划区域，标注提案与依据；不要求创伤、隐藏面具或悲剧结局。日常场景与已经可信的人物不需要完整填卡。
 
-## Draft and continue
+## 撰写与续写（Draft and continue）
 
-1. Inspect the current chapter state and last accepted chapter.
-2. Assemble continuity context according to `project-contract.md`.
-3. Determine the chapter goal and any user direction.
-4. Retrieve historical passages only when they reduce a real continuity risk.
-5. Load optional style context when configured.
-6. Draft clean prose.
-7. Run blocking checks and targeted semantic continuity review. Apply the default review cadence in `quality-gates.md`; run other checks according to configuration.
-8. If accepted, update memory and derived indexes. Otherwise store the draft outside canonical manuscript state.
+1. 检查当前章节状态与上一个已接受章节。
+2. 按 `project-contract.md` 装配连续性上下文。
+3. 确定章节目标与用户的任何指示。
+4. 仅当历史段落检索能降低真实连续性风险时才执行检索。
+5. 已配置风格上下文时按需加载。
+6. 起草干净正文。
+7. 运行阻断级检查与针对性语义连续性审阅。执行 `quality-gates.md` 的默认审查节奏；其余检查按配置运行。
+8. 若被接受，更新记忆与派生索引；否则将草稿保存在规范正文状态之外。
 
-For batch writing, complete the state transition for one chapter before drafting the next. Pause at configured checkpoints or when a blocking conflict requires creative judgment.
+批量写作时，先完成一章的状态迁移，再起草下一章。到达配置的检查点、或出现需要创作判断的阻断级冲突时暂停。
 
-For long serials, when a 10-chapter creative checkpoint is due, review recent prose for style consistency before recording the creative decision, and stop before creating or modifying the target chapter until the checkpoint is resolved. At a volume boundary, collect a whole-volume audit, perform the scheduled multi-agent review, and record the verdict before checkpoint approval. Review major irreversible plot decisions with the red-team role before accepting the chapter. Use hybrid retrieval when configured; if local embeddings fail, report the degraded FTS5 fallback.
+长连载中，10 章创作检查点到期时，先复核近期文段的风格一致性，再记录创作决策；检查点解决之前，停在创建或修改目标章节的动作之前。卷边界处，收集全卷审计、执行计划中的多 Agent 审稿、并在检查点批准前记录判定。重大不可逆剧情决策在接受该章之前先经红队角色审查。配置了 hybrid 检索时使用之；本地 embedding 失败时，报告降级到 FTS5 的兜底情况。
 
-## Revise
+## 修订（Revise）
 
-### Chapter revision
+### 章节修订
 
-- Identify the exact accepted chapter and requested scope.
-- Preserve unrelated prose and user edits.
-- Re-run checks relevant to the changed content.
-- Invalidate and rebuild that chapter's summaries, graph updates, and retrieval entries after acceptance.
+- 定位确切的已接受章节与请求范围。
+- 保留无关文段与用户的手工修改。
+- 重新运行与变更内容相关的检查。
+- 接受后，失效并重建该章的摘要、图谱更新与检索条目。
 
-### Outline revision
+### 大纲修订
 
-- Ask for the earliest affected chapter only when it cannot be inferred safely.
-- Preserve a recoverable snapshot of affected planning and derived state.
-- Recalculate affected anchors.
-- Mark downstream facts as pending review instead of silently deleting them.
-- Rebuild affected indexes after the revised outline is confirmed.
+- 仅在无法安全推断时，才询问最早受影响的章节。
+- 为受影响的规划与派生状态保留可恢复快照。
+- 重算受影响的锚点。
+- 将下游事实标记为待审阅，而不是悄悄删除。
+- 修订后的大纲确认后，重建受影响索引。
 
-Failure of a derived rebuild is degraded, not proof that the outline revision failed. Record the stale artifact and recovery command.
+派生重建失败属于降级（degraded），不证明大纲修订失败。记录过期产物与恢复命令。
 
-## Inspect
+## 查阅（Inspect）
 
-Status, continuity, character, timeline, and foreshadowing requests are read-only unless the user also asks for correction. Report evidence sources and uncertainty. Do not run the drafting pipeline for inspection alone.
+状态、连续性、人物、时间线、伏笔类请求默认只读，除非用户同时要求修正。报告证据来源与不确定性。仅为查阅时不得运行撰写流水线。
