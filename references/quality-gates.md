@@ -1,63 +1,65 @@
-# Quality gates
+# 质量门禁
 
-Use gates proportionally to the operation and project configuration.
+按操作规模和项目配置成比例地使用门禁。
 
-## Blocking checks
+## 阻断级检查（Blocking）
 
-Block acceptance or publication when any of these applies:
+出现以下任一情况时，阻断接受或发布：
 
-- analysis, TODOs, prompts, or role metadata leaked into manuscript prose;
-- a confirmed character, timeline, world-rule, or outline contradiction;
-- an invalid chapter state transition;
-- a user-defined prohibition is violated;
-- an expected output file is incomplete or structurally invalid.
+- 分析、TODO、提示词或角色元信息泄漏进正文；
+- 已确认的人物、时间线、世界规则或大纲出现矛盾；
+- 无效的章节状态迁移；
+- 违反用户定义的禁区；
+- 预期产物文件缺失或结构无效；
+- **去AI味铁律（每章强制，默认启用）**：`copyedit_report.md` 的 AI 痕迹严重程度必须为「轻微」；「中等 / 严重」表示两遍式润色未完成，「未知」表示检测未执行，二者均直接判失败（见 `chapter_gate_check.py` 的 `ai_flavor_gate` 检查项）。
 
-Provide the shortest repair path. Do not force a complete rewrite when a narrow correction is sufficient.
+给出最短修复路径。当局部修正足够时，不强制整章重写。
 
-## Degraded checks
+## 降级检查（Degraded）
 
-Retrieval, a derived index, dashboard generation, or a nonessential analyzer may degrade. On degradation:
+检索、派生索引、仪表盘或非关键分析器可以降级。降级时：
 
-1. retry once when the failure is plausibly transient or the index can be rebuilt safely;
-2. use a documented fallback such as recent accepted chapters plus canonical memory;
-3. record the failure and stale artifact;
-4. continue only when no blocking fact is unresolved.
+1. 失败可能是暂态、或索引可安全重建时，重试一次；
+2. 使用已记录的兜底方案，例如「最近已接受章节 + 规范记忆」；
+3. 记录失败与过期产物；
+4. 仅当没有未解决的阻断级事实时才继续。
 
-## Optional checks
+## 可选检查（Optional）
 
-Outside the default review cadence below, run only when requested, configured, or justified by risk:
+在下方默认节奏之外，仅在被要求、被配置或风险证明合理时运行：
 
-- style-metric audit;
-- anti-pattern or "AI-like" language scan;
-- multi-agent editorial review;
-- broad research;
-- whole-volume continuity audit;
-- dashboard generation.
+- 风格指标审计；
+- 多 Agent 编辑审稿；
+- 广泛调研；
+- 全卷连续性审计；
+- 仪表盘生成。
 
-Regex and metric checks produce evidence, not final literary judgments. Treat unusual prose as a review signal rather than an automatic defect.
+正则与指标产生的是证据，不是最终的文学判决。把反常文笔当作审阅信号，而不是自动缺陷。
 
-`continue-write` defaults to advisory prose metrics. The report still records short length, dialogue ratio, repetition, and other signals, but they do not by themselves fail the chapter gate or trigger padding. `--strict-prose-metrics` explicitly restores numeric blocking for a project that wants it. The Beat Sheet pipeline is also opt-in because its per-beat length targets are hard constraints. Structural contamination, protected reveals, and invalid state transitions remain blocking.
+`continue-write` 默认将文字指标（字数、对话占比、重复度）作为建议信号；报告仍会记录短章、对话比例、重复度等信号，但它们本身不会使章节门禁失败或触发注水。项目确需数值硬门槛时显式添加 `--strict-prose-metrics`。Beat Sheet 流水线同样为 opt-in，因为其逐 Beat 字数目标是硬约束。
 
-`--auto-batch-review` and `--four-official` generate review task files only. They do not dispatch agents or record an editorial verdict; report the tasks as pending until a reviewer actually completes them.
+**去AI味扫描不属于上述可选指标**：它检测的是模式类别（AI 高频词、弱化副词、意义膨胀、对话同质化等）而非数值阈值，默认随每章校稿执行，与 `--strict-prose-metrics` 无关。结构性污染、受保护伏笔、无效状态迁移以及 AI 痕迹「中等/严重/未知」仍为阻断级。
 
-## Default review cadence
+`--auto-batch-review` 与 `--four-official` 只生成审稿任务文件。它们不派发 Agent、不记录编辑判定；在审稿人真正完成前，任务一律报告为 pending。
 
-1. **Every chapter — targeted continuity.** Before acceptance, read the draft against relevant accepted passages and confirmed character, timeline, world-rule, and foreshadowing state. Check this chapter's changed facts and causal links; record unresolved conflicts. After acceptance, synchronize relevant memory and indexes.
-2. **Every 10 accepted chapters — creative checkpoint and style review.** Before the next chapter, read representative recent prose and review direction, character agency, and pacing with the user or designated reviewer. Compare the prose with the book's confirmed style and character voices; when an author pack is configured, use its selected family and abstract traits. Without a reliable style baseline, report that limitation and assess observable consistency. Prose metrics remain advisory. Record the review notes with the existing checkpoint decision; do not update the style baseline merely to make drift disappear.
-3. **Every completed volume — whole-volume audit and multi-agent review.** Collect the volume evidence with `volume_audit.py`; then review the manuscript in bounded batches against relevant state. When collaboration is available, dispatch read-only reviewers for continuity, character and causality, structure and pacing, and style. Supply the project path, chapter range, relevant state, and the review question. Each reviewer reads source prose and returns findings with chapter references and excerpts. The root agent reconciles conflicts, handles edits, and records the volume verdict before advancing.
-4. **Major plot decisions — red-team review.** When the user, approved outline, or host identifies a character death, identity reveal, world-rule breakthrough, or comparable irreversible change, review its setup, motives, causal support, consequences, and alternatives before acceptance. Use a read-only red-team agent when available. Respect the confirmed ending and deliberate creative choices; do not reject a surprise solely because it is surprising.
+## 默认审查节奏（含去AI味，默认启用）
 
-If collaboration tools are unavailable, the host performs the same reviews sequentially and explicitly reports that independent multi-agent review did not run. Task generation is reported as pending until actual review is complete. Confirmed contradictions and user hard constraints require correction; stylistic preferences are suggestions for the author to decide. Store notes in the existing editing/checkpoint artifacts, without adding a new review database or configuration layer.
+1. **每章 —— 针对性连续性检查 + 去AI味铁律。** 接受前，将草稿对照相关已接受段落和已确认的人物、时间线、世界规则、伏笔状态，核查本章变更过的事实与因果链，记录未解决冲突。草稿完成后执行 AI 痕迹检测（`text_humanizer.py`），严重程度「中等」及以上必须完成两遍式人性化润色并复核后才可接受；`chapter_gate_check.py` 以阻断级 `ai_flavor_gate` 强制执行。接受后同步相关记忆与索引。
+2. **每 10 个已接受章节 —— 创作检查点与风格复核。** 写下一章前，与用户或指定审稿人共读近期代表性文段，回顾方向、人物主动性与节奏。将文笔与本书已确认的风格和角色声音比对；配置了作者风格包时使用其选定语系与抽象特质。没有可靠风格基线时，如实报告该局限并评估可观察的一致性。文字指标仍为建议性质。检查点决策与复核记录一并保存；不得为了让漂移消失而更新风格基线。
+3. **每完成一卷 —— 全卷审计与多 Agent 审稿。** 用 `volume_audit.py` 汇总卷级证据；然后分批审阅正文与相关状态。具备协作能力时，派发只读审稿人分别负责连续性、人物与因果、结构与节奏、文风，提供项目路径、章节范围、相关状态与审稿问题；每位审稿人阅读原文并返回带章节引用与摘录的发现。根 Agent 裁决冲突、处理修改、记录卷判定后方可推进。
+4. **重大剧情决策 —— 红队审查。** 当用户、已批准大纲或宿主识别出角色死亡、身份揭露、世界规则突破等不可逆变化时，接受前审查其铺垫、动机、因果支撑、后果与替代方案。可行时使用只读红队 Agent。尊重已确认的结局与刻意的创作选择；不仅因「出乎意料」而否决意外。
 
-## Character and causality review
+协作工具不可用时，宿主按相同项目逐项审阅，并明确报告「独立多 Agent 审稿未运行」。任务生成在审稿真正完成前一律报告为 pending。已确认矛盾与用户硬约束必须修正；风格偏好仅作为建议交作者决定。记录写入现有编辑/检查点产物，不新增审稿数据库或配置层。
 
-For character-and-causality review, apply [character-tension.md](character-tension.md) to relevant choices: motivation and knowledge, credible conflict and setup, both parties' agency, proportionate costs, and continuing consequences. Ask the major-plot red team to consider plausible alternatives and missing setup. Return passage-based findings and narrow repair suggestions; missing cards, trauma, masks, mirrored characters, or tragic outcomes are not failures. These are host semantic checks, not new numeric gates, and they do not add to the default review frequency.
+## 人物与因果审查
 
-## Reporting
+人物与因果审查时，对相关选择套用 [character-tension.md](character-tension.md)：动机与知情状态、可信的冲突与铺垫、双方的主动性、相称的代价、延续的后果。重大剧情红队需考虑合理替代方案与缺失铺垫。返回基于段落的发现与窄幅修复建议；缺卡、创伤、面具、镜像人物或悲剧结局不构成失败。这些是宿主语义检查，不是新的数值门禁，也不增加默认审阅频率。
 
-Return a compact result with:
+## 汇报
 
-- `blocking`: failures that prevented acceptance;
-- `degraded`: failed subsystems and fallbacks used;
-- `optional`: checks run and signals found;
-- `accepted`: whether canonical state was updated.
+返回紧凑结果：
+
+- `blocking`：阻断接受失败的项；
+- `degraded`：失败的子系统与所用兜底；
+- `optional`：运行过的可选检查与发现的信号；
+- `accepted`：规范记忆是否已更新。

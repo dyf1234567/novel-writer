@@ -129,6 +129,30 @@ def check_quality_report(path: Path) -> Tuple[bool, str]:
     return True, "通过"
 
 
+def check_ai_flavor(path: Path) -> Tuple[bool, str]:
+    """去AI味铁律（novel-writer：每章强制闭环步骤，默认启用，不可选关闭）。
+
+    copyedit_report.md 由 continue-write 写入一行
+    「AI痕迹严重程度：<轻微|中等|严重|未知>」。铁律判定：
+      - 轻微       → 通过（低于自动润色触发线，或已完成润色复核）
+      - 中等 / 严重 → 未完成两遍式去AI味润色，失败
+      - 未知 / 缺失 → 检测未执行，失败
+    """
+    txt = path.read_text(encoding="utf-8", errors="ignore")
+    m = re.search(r"AI痕迹严重程度[：:]\s*\*{0,2}(轻微|中等|严重|未知)", txt)
+    if not m:
+        return False, "copyedit_report.md 缺少「AI痕迹严重程度」结论，去AI味检测未执行"
+    level = m.group(1)
+    if level == "轻微":
+        return True, "AI痕迹轻微，通过"
+    if level == "未知":
+        return False, "去AI味检测未执行（severity=未知），违反每章强制闭环铁律"
+    return False, (
+        f"AI痕迹严重程度为「{level}」，未完成两遍式去AI味润色，"
+        "违反每章强制闭环铁律（执行 /校稿 或设置 NOVEL_LLM_PROVIDER 自动润色后重检）"
+    )
+
+
 def check_pacing_review(path: Path) -> Tuple[bool, str]:
     """解析 pacing_review.md 的综合结论字段。
 
@@ -375,6 +399,20 @@ def main() -> int:
         result["checks"].append(item)
         if not ok:
             result["failures"].append(f"quality_baseline: {msg}")
+
+    # ── 去AI味铁律（每章强制，默认启用，不走 project_policy 开关）──────────
+    copyedit_path = artifacts["copyedit_report"]
+    if copyedit_path.exists() and copyedit_path.stat().st_size >= args.min_bytes:
+        ok, msg = check_ai_flavor(copyedit_path)
+        item = {
+            "name": "ai_flavor_gate",
+            "path": str(copyedit_path),
+            "ok": ok,
+            "message": msg,
+        }
+        result["checks"].append(item)
+        if not ok:
+            result["failures"].append(f"ai_flavor_gate: {msg}")
 
     # ── 反向刹车校验（anti_resolution_guard check）────────────────────
     try:
