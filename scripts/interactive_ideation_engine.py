@@ -28,6 +28,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, load_json, read_text, save_json, write_text
+from config import __version__
 
 # -- 常量 ------------------------------------------------------------------
 
@@ -398,6 +399,7 @@ def cmd_generate(args: argparse.Namespace, cfg: IdeationConfig) -> Dict[str, Any
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="交互式脑洞引导引擎")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("init", help="初始化引导会话")

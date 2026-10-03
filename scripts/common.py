@@ -8,7 +8,9 @@
 import functools
 import hashlib
 import json
+import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -21,6 +23,20 @@ _SLUGIFY_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff_-]+")
 _CHARS_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
 _ENGLISH_RE = re.compile(r"[A-Za-z]{3,}")
 _CHAPTER_NO_RE = re.compile(r"第(\d+)章")
+
+
+def resolve_python_interpreter() -> str:
+    """按 SKILL.md 约定的优先级解析 Python 解释器（novel-writer 新增）。
+
+    顺序：NOVEL_WRITER_PYTHON 环境变量 → 当前解释器（sys.executable）。
+    测试脚本与需要自调用 Python 的场景应使用本函数，
+    而不是硬编码 "python3"——Windows 等环境没有 python3 命令，
+    硬编码会直接导致 rc=9009。
+    """
+    configured = os.environ.get("NOVEL_WRITER_PYTHON", "").strip()
+    if configured:
+        return configured
+    return sys.executable or "python3"
 
 # =============================================================================
 # 文件系统操作

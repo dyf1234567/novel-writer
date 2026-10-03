@@ -24,6 +24,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, load_json, read_text, save_json, write_text
+from config import __version__
 
 # -- 常量 ------------------------------------------------------------------
 
@@ -428,19 +429,21 @@ def cmd_unresolved(args: argparse.Namespace, cfg: ReviewConfig) -> Dict[str, Any
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="跨 Agent 审核编排器")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("review", help="生成单章审核任务")
     s.add_argument("--project-root", required=True)
     s.add_argument("--chapter", type=int, required=True)
     s.add_argument("--chapter-file", required=True, help="章节文件路径")
-    s.add_argument("--writer-tool", default="claude-code", help="写作工具名称")
+    # novel-writer 适配：本 skill 面向 Codex，默认写作工具改为 codex
+    s.add_argument("--writer-tool", default="codex", help="写作工具名称")
 
     s = sub.add_parser("batch-review", help="生成批处理审核任务")
     s.add_argument("--project-root", required=True)
     s.add_argument("--chapter-start", type=int, required=True)
     s.add_argument("--chapter-end", type=int, required=True)
-    s.add_argument("--writer-tool", default="claude-code")
+    s.add_argument("--writer-tool", default="codex")
 
     s = sub.add_parser("record", help="记录审核结果")
     s.add_argument("--project-root", required=True)

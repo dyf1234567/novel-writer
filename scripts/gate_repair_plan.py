@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from common import slugify
+from config import __version__
 
 
 def resolve_chapter(project_root: Path, chapter_file: str) -> Path:
@@ -91,6 +92,7 @@ def dedupe_steps(steps: List[str]) -> List[str]:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="根据 gate_result.json 生成章节修复计划")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     p.add_argument("--project-root", required=True, help="小说项目根目录")
     p.add_argument("--chapter-file", required=True, help="章节文件路径（可相对 project-root）")
     p.add_argument("--chapter-id", help="章节标识，默认从章节文件名推导")

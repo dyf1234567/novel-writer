@@ -25,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, read_text, write_text, load_json, save_json
+from config import __version__
 
 
 # =========================================================
@@ -315,6 +316,7 @@ def main():
   python3 research_agent.py store --project-root ./my_novel --category "历史背景" --content "安史之乱发生于..." --source "https://..."
         """,
     )
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = parser.add_subparsers(dest="command")
 
     p_kw = sub.add_parser("keywords", help="生成搜索关键词列表")

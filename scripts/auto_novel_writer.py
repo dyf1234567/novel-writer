@@ -22,6 +22,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, read_text, write_text, load_json, save_json
+from config import __version__
 
 # =============================================================================
 # 常量
@@ -598,6 +599,7 @@ def parse_args() -> argparse.Namespace:
         description="一键写书调度器 - 全自动完成小说创作全流程",
         epilog="示例: auto_novel_writer.py plan --synopsis '穿越唐朝' --target-chars 50000 --genre 历史",
     )
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     # plan 子命令

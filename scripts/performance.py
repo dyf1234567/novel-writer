@@ -123,7 +123,7 @@ class Tokenizer:
         """获取缓存统计信息"""
         total = self._cache_hits + self._cache_misses
         hit_rate = (self._cache_hits / total * 100) if total > 0 else 0
-        
+
         return {
             "hits": self._cache_hits,
             "misses": self._cache_misses,
@@ -131,6 +131,16 @@ class Tokenizer:
             "hit_rate": round(hit_rate, 2),
             "cache_size": len(self._ngram_cache),
         }
+
+    def clear_cache(self) -> None:
+        """清空 n-gram 缓存并重置命中计数（novel-writer 新增）。
+
+        长跑任务（如全卷索引重建、基线评测多轮）结束后调用，
+        可释放缓存内存并在下一轮得到干净的命中率统计。
+        """
+        self._ngram_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
 
 
 # =============================================================================

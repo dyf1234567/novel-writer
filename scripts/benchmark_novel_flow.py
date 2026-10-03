@@ -2,6 +2,8 @@
 """小说流程评测基线脚本。"""
 
 import argparse
+
+from config import __version__
 import datetime as dt
 import json
 import os
@@ -40,6 +42,7 @@ def mean(xs: List[float]) -> float:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="评测 novel_flow_executor 的流程指标基线")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     p.add_argument("--project-root", required=True)
     p.add_argument("--queries-file", help="JSON 文件，格式为字符串数组")
     p.add_argument("--rounds", type=int, default=3)

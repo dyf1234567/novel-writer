@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import count_chars, ensure_dir, load_json, read_text, save_json, write_text
+from config import __version__
 
 # -- 节奏检测 ---------------------------------------------------------------
 
@@ -347,6 +348,7 @@ def cmd_validate(args: argparse.Namespace, cfg: SynthConfig) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="章节合成器")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("synthesize", help="合成 Beat 扩写为完整章节")

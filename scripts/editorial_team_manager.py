@@ -28,6 +28,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, load_json, save_json, read_text
+from config import __version__
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -226,6 +227,7 @@ def cmd_need_human(project_root: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="编辑团队管理器")
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # snapshot

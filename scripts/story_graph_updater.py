@@ -30,6 +30,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, load_json, read_text, save_json
+from config import __version__
 
 # -- 配置 ------------------------------------------------------------------
 
@@ -480,6 +481,7 @@ def cmd_diff(args: argparse.Namespace, cfg: UpdaterConfig) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="章节级知识图谱更新器")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("extract", help="从章节生成图谱更新建议")

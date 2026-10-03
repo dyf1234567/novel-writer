@@ -22,6 +22,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from common import ensure_dir, load_json, read_text, save_json
+from config import __version__
 
 # ── 中文数字 → 阿拉伯数字 ────────────────────────────────────────
 
@@ -300,6 +301,7 @@ def cmd_recalculate(args: argparse.Namespace, cfg: AnchorConfig) -> Dict[str, An
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="大纲锚点管理器")
+    p.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("init", help="根据 novel_plan 初始化锚点")

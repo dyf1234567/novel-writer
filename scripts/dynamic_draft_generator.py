@@ -133,6 +133,16 @@ class DynamicDraftGenerator:
             name, desc = self.MILESTONES[chapter_no]
             return f"{name} - {desc}"
         return None
+
+    def add_milestone(self, chapter_no: int, name: str, desc: str) -> None:
+        """注册自定义里程碑章节（novel-writer 新增）。
+
+        内置里程碑只覆盖到第 200 章；超长篇项目可在运行时
+        注入自己的节点（如第 300/500/1000 章），无需改动本模块。
+        """
+        if chapter_no < 1:
+            raise ValueError("chapter_no 必须 >= 1")
+        self.MILESTONES[int(chapter_no)] = (name, desc)
     
     def _build_draft(self, context: DraftContext, template: Dict) -> str:
         """构建草稿内容"""

@@ -8,10 +8,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from common import resolve_python_interpreter
 
 ROOT = Path(__file__).resolve().parent
 EXECUTOR = ROOT / "novel_flow_executor.py"
-PY = "python3"
+# 可移植解释器解析（novel-writer 修复）：优先 NOVEL_WRITER_PYTHON，
+# 否则用当前解释器。此前硬编码 "python3" 在 Windows 上 rc=9009 全部失败。
+PY = resolve_python_interpreter()
 
 
 def run_cmd(args):
