@@ -134,6 +134,22 @@ def _has_llm_config(args: argparse.Namespace, project_root: Path) -> bool:
     return (project_root / ".novel_writer_config.yaml").exists()
 
 
+def _writer_overrides(args: argparse.Namespace) -> Dict[str, object]:
+    """One override policy for drafting, beat expansion and revision."""
+    overrides: Dict[str, object] = {"auto_update_memory": False, "skip_humanizer": True}
+    provider = getattr(args, "llm_provider", None) or os.environ.get("NOVEL_LLM_PROVIDER")
+    if provider:
+        overrides["ai_provider"] = provider
+    if getattr(args, "llm_model", None):
+        overrides["model"] = args.llm_model
+    if getattr(args, "llm_api_key", None):
+        overrides["api_key"] = args.llm_api_key
+        # Concrete adapter-specific keys; overrides win over project/env values.
+        overrides["openai_api_key"] = args.llm_api_key
+        overrides["anthropic_api_key"] = args.llm_api_key
+    return overrides
+
+
 def _retrieval_engine_args(args: argparse.Namespace) -> List[str]:
     """检索脚本引擎参数透传（legacy / fts5），未配置时默认 legacy。"""
     engine = str(getattr(args, "retrieval_engine", "legacy") or "legacy")
@@ -230,7 +246,8 @@ def _rewrite_chapter_with_llm(
 
     try:
         from novel_chapter_writer import write_chapter  # type: ignore[import]
-        overrides: Dict[str, object] = {"writing_prompt": prompt}
+        overrides: Dict[str, object] = _writer_overrides(args)
+        overrides["writing_prompt"] = prompt
         if getattr(args, "llm_provider", None):
             overrides["ai_provider"] = args.llm_provider
         if getattr(args, "llm_model", None):
@@ -430,8 +447,10 @@ def run_python(script: Path, args: List[str]) -> Tuple[int, str, str, Optional[D
     cmd = [sys.executable, str(script), *args]
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env, timeout=300)
     except subprocess.TimeoutExpired:
         return -1, "", "子进程超时 (300s)", None
     out = proc.stdout.strip()
@@ -595,20 +614,21 @@ def make_request_id(args: argparse.Namespace, chapter_path: Path, query: str, ch
     except (ValueError, TypeError):
         path_key = chapter_path.name
 
-    raw = "|".join([
-        path_key,
-        query.strip(),
-        str(args.top_k),
-        str(args.min_chars),
-        str(args.min_paragraphs),
-        str(args.min_dialogue_ratio),
-        str(args.max_dialogue_ratio),
-        str(args.min_sentences),
-        str(args.auto_draft),
-        str(args.auto_improve),
-        str(args.auto_retry),
-        chapter_hash_before,
-    ])
+    from canonical_state import context_signature
+    from ai_flavor_state import DETECTOR_VERSION
+    settings = {k: v for k, v in vars(args).items()
+                if k not in {"force_run", "idempotent_cache", "llm_api_key"}
+                and not k.startswith("_")}
+    settings["llm_api_key_present"] = bool(getattr(args, "llm_api_key", None))
+    raw = json.dumps({
+        "cache_schema": 2, "path": path_key, "query": query.strip(),
+        "chapter_hash": chapter_hash_before, "settings": settings,
+        "detector_version": DETECTOR_VERSION,
+        "environment": {key: os.environ.get(key) for key in (
+            "NOVEL_AI_PROVIDER", "NOVEL_AI_MODEL", "NOVEL_LLM_PROVIDER",
+            "AUTHOR_STYLE_HOME", "STYLE_INDEX_HOME", "STYLE_WRITER_SKILL_HOME")},
+        "context_signature": context_signature(project_root) if project_root else None,
+    }, ensure_ascii=False, sort_keys=True, default=str)
     return sha1_text(raw)
 
 
@@ -1312,7 +1332,7 @@ def _generate_beat_draft(
         if draft_provider == "llm" and expand_prompt:
             try:
                 from novel_chapter_writer import write_chapter  # type: ignore[import]
-                overrides: Dict[str, object] = {}
+                overrides: Dict[str, object] = _writer_overrides(args)
                 if getattr(args, "llm_provider", None):
                     overrides["ai_provider"] = args.llm_provider
                 if getattr(args, "llm_model", None):
@@ -1589,144 +1609,124 @@ def write_gate_artifacts(
     query: str,
     quality: Dict[str, object],
     query_payload: Optional[Dict[str, object]],
+    args: Optional[argparse.Namespace] = None,
 ) -> List[str]:
-    chapter_id = slugify(chapter_path.stem)
-    gate_dir = project_root / "04_editing" / "gate_artifacts" / chapter_id
+    """Finish polishing first, then derive every report from the final body."""
+    from ai_flavor_state import check_chapter
+    from canonical_state import atomic_json
+
+    gate_dir = project_root / "04_editing/gate_artifacts" / slugify(chapter_path.stem)
     ensure_dir(gate_dir)
-
-    tracker_names = load_character_names(project_root)
-    query_names = [n for n in tracker_names if n in query]
-    unknown_names = re.findall(r"[\u4e00-\u9fff]{2,4}", query)
-    unknown_names = [n for n in unknown_names if n not in tracker_names][:5]
-
-    memory_update = f"""# 记忆更新
-
-- 章节：{chapter_path.name}
-- 更新时间：{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-- 本章关键推进：{query}
-- 命中角色：{', '.join(query_names) if query_names else '未明确命中'}
-- 质量摘要：字符={quality['char_count']} 段落={quality['paragraph_count']} 对话占比={quality['dialogue_ratio']}
-"""
-    consistency = f"""# 一致性检查
-
-- 检查范围：剧情/角色/时间线/设定
-- 本章输入：{query}
-- 命中角色：{', '.join(query_names) if query_names else '无'}
-- 风险提示：{('可能出现新实体：' + ', '.join(unknown_names)) if unknown_names else '未发现高风险新实体'}
-- 结论：通过初步一致性审查，建议下一章继续核对时间线。
-"""
-    style = f"""# 风格校准
-
-- 检查项：句式节奏、对话密度、AI高频词
-- 对话占比：{quality['dialogue_ratio']}
-- AI词命中：{quality['ai_phrase_hits'] if quality['ai_phrase_hits'] else '未命中'}
-- 结论：本章风格基本稳定，建议继续保持短句与动作描写平衡。
-"""
-    # 调用 text_humanizer 获取 AI 痕迹检测数据，severity >= medium 时自动纠正（最多2轮）
-    _SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2}
-    humanizer_section = ""
-    humanizer_rounds = 0
-    humanizer_auto_fixed = False
-    h_code, _h_out, _h_err, h_payload = run_python(
-        SCRIPT_DIR / "text_humanizer.py",
-        ["report", "--chapter-file", str(chapter_path)],
+    if args is None:
+        args = argparse.Namespace(
+            min_chars=2500, min_paragraphs=8, min_dialogue_ratio=0.03,
+            max_dialogue_ratio=0.7, min_sentences=8,
+            strict_prose_metrics=quality.get("strict_prose_metrics", True),
+            pacing_mode=quality.get("pacing_mode", "standard"),
+        )
+    before = dict(quality)
+    budget = getattr(args, "_humanizer_budget", None)
+    if budget is None:
+        budget = {"limit": 2, "used": 0}
+        args._humanizer_budget = budget
+    rounds = 0
+    errors: List[str] = []
+    h_code, _, h_err, h_payload = run_python(
+        SCRIPT_DIR / "text_humanizer.py", ["report", "--chapter-file", str(chapter_path)]
     )
-    if h_code == 0 and isinstance(h_payload, dict) and h_payload.get("ok"):
-        llm_provider = os.environ.get("NOVEL_LLM_PROVIDER", "")
-        while (
-            _SEVERITY_ORDER.get(h_payload.get("severity", "low"), 0) >= 1
-            and humanizer_rounds < 2
-        ):
-            p_code, _p_out, _p_err, p_payload = run_python(
-                SCRIPT_DIR / "text_humanizer.py",
-                ["prompt", "--chapter-file", str(chapter_path)],
-            )
-            if p_code != 0 or not isinstance(p_payload, dict):
+    scan = check_chapter(project_root, chapter_path)
+    while (h_code == 0 and isinstance(h_payload, dict) and h_payload.get("ok")
+           and h_payload.get("severity") in {"medium", "high"}
+           and not scan["passed"] and budget["used"] < budget["limit"]):
+        p_code, _, p_err, p_payload = run_python(
+            SCRIPT_DIR / "text_humanizer.py", ["prompt", "--chapter-file", str(chapter_path)]
+        )
+        if p_code or not isinstance(p_payload, dict) or not p_payload.get("prompt"):
+            errors.append("润色提示生成失败：" + (p_err or "无有效 prompt"))
+            break
+        write_text(gate_dir / "humanize_prompt.md", str(p_payload["prompt"]))
+        if not _has_llm_config(args, project_root):
+            errors.append("未配置模型；提示已保存至 humanize_prompt.md，可人工润色或误报复核")
+            break
+        try:
+            import contextlib
+            from novel_chapter_writer import write_chapter
+
+            overrides = _writer_overrides(args)
+            overrides.update(writing_prompt=p_payload["prompt"], skip_humanizer=True)
+            rounds += 1
+            budget["used"] += 1
+            # Keep executor stdout machine-readable; do not log config/API keys.
+            with contextlib.redirect_stdout(sys.stderr):
+                outcome = write_chapter(project_root, chapter_file=chapter_path,
+                                        config_overrides=overrides, dry_run=False)
+            if not outcome.get("ok"):
+                errors.append("模型润色未完成")
                 break
-            humanize_prompt = p_payload.get("prompt", "")
-            if not humanize_prompt:
-                break
-            if llm_provider:
-                try:
-                    from novel_chapter_writer import write_chapter  # type: ignore[import]
-                    llm_result = write_chapter(
-                        project_root,
-                        chapter_file=chapter_path,
-                        config_overrides={
-                            "ai_provider": llm_provider,
-                            "writing_prompt": humanize_prompt,
-                        },
-                        dry_run=False,
-                    )
-                    if llm_result.get("ok"):
-                        humanizer_auto_fixed = True
-                except Exception as _hum_err:
-                    print(f"[警告] Humanizer 自动修复失败: {_hum_err}")
-            humanizer_rounds += 1
-            # 重新检测，severity 已达 low 则退出循环
-            re_code, _, _, re_payload = run_python(
-                SCRIPT_DIR / "text_humanizer.py",
-                ["report", "--chapter-file", str(chapter_path)],
-            )
-            if (re_code == 0 and isinstance(re_payload, dict)
-                    and _SEVERITY_ORDER.get(re_payload.get("severity", "low"), 0) < 1):
-                h_payload = re_payload
-                break
-            if not llm_provider:
-                break  # 非 LLM 模式只生成一次 prompt，不继续循环
-        severity_map = {"low": "轻微", "medium": "中等", "high": "严重"}
-        sev = severity_map.get(h_payload.get("severity", ""), h_payload.get("severity", ""))
-        report_md = h_payload.get("report", "")
-        humanizer_section = f"\n\n---\n\n{report_md}"
-        if humanizer_auto_fixed:
-            humanizer_section += f"\n\n（自动纠正已执行 {humanizer_rounds} 轮）"
-        elif humanizer_rounds > 0:
-            humanizer_section += "\n\n（已生成润色 prompt，需人工执行 /校稿 完成纠正）"
-    else:
-        sev = "未知"
-        humanizer_section = "\n\n（text_humanizer 检测跳过：脚本不可用或无法读取文件）"
+        except Exception as exc:
+            errors.append(f"模型润色失败（{type(exc).__name__}）；请检查模型配置")
+            break
+        # Update on EVERY retest, including high -> medium -> medium.
+        h_code, _, h_err, h_payload = run_python(
+            SCRIPT_DIR / "text_humanizer.py", ["report", "--chapter-file", str(chapter_path)]
+        )
+        scan = check_chapter(project_root, chapter_path)
 
-    copyedit = f"""# 校稿报告
-
-- 修订目标：降低AI味、提升可读性、保证节奏递进
-- 动作：清理重复表述、补足转场、强化章末钩子
-- AI痕迹严重程度：{sev}
-- 发布建议：参考下方检测报告后执行两遍式润色
-{humanizer_section}
-"""
-    # evaluate_quality() 返回 "passed" 键；兼容上游可能传入 "ok" 键的场景
-    quality_ok: bool = bool(quality.get("passed", quality.get("ok", False)))
-    quality_failures: List[str] = list(quality.get("failures", []))  # type: ignore[arg-type]
-    if quality_ok:
-        publish_verdict = "可发布（通过）"
-        publish_keyword = "可发布 / 通过 / PASS"
-        publish_note = "本章已完成自动流程并通过所有质量门禁项。"
-    else:
-        publish_verdict = "不建议发布（未通过）"
-        publish_keyword = "不通过 / FAIL"
-        failure_lines = "\n".join(f"  - {f}" for f in quality_failures) if quality_failures else "  - 未知失败"
-        publish_note = f"本章未通过以下质量门禁项，需修复后重新检查：\n{failure_lines}"
-
-    publish = f"""# 发布判定
-
-章节：{chapter_path.name}
-结论：{publish_verdict}
-说明：{publish_note}
-字符数：{quality.get('char_count', 0)}  段落数：{quality.get('paragraph_count', 0)}
-关键词：{publish_keyword}
-"""
-
-    paths = [
-        ("memory_update.md", memory_update),
-        ("consistency_report.md", consistency),
-        ("style_calibration.md", style),
-        ("copyedit_report.md", copyedit),
+    if not scan["passed"] and budget["used"] >= budget["limit"]:
+        errors.append("本次续写两轮润色预算已耗尽；停止模型调用，待人工润色或误报复核")
+    # Always retest the final bytes, including partial writer failures.
+    h_code, _, h_err, h_payload = run_python(
+        SCRIPT_DIR / "text_humanizer.py", ["report", "--chapter-file", str(chapter_path)]
+    )
+    scan = check_chapter(project_root, chapter_path)
+    atomic_json(gate_dir / "ai_flavor_scan.json", scan)
+    quality.clear()
+    quality.update(evaluate_quality(read_text(chapter_path), args))
+    quality_report = write_quality_report(gate_dir, before, quality)
+    detected = h_code == 0 and isinstance(h_payload, dict) and h_payload.get("ok")
+    label = {"low": "轻微", "medium": "中等", "high": "严重"}.get(
+        h_payload.get("severity") if detected else "unknown", "未知"
+    )
+    humanizer_report = str(h_payload.get("report", "")) if detected else "检测报告不可用，请重跑。"
+    quality_ok = bool(quality["passed"]) and bool(scan["passed"]) and bool(detected)
+    names = [n for n in load_character_names(project_root) if n in query]
+    body_sha = scan["chapter_sha256"]
+    memory_update = (
+        f"# 记忆更新候选\n\n章节：{chapter_path.name}\n正文 SHA256：{body_sha}\n"
+        f"本章输入：{query}\n字符：{quality['char_count']}；段落：{quality['paragraph_count']}\n"
+        "未接受前不提交正式记忆；接受后更新摘记，事实提取仍需语义审阅。\n"
+    )
+    consistency = (
+        f"# 一致性检查\n\n章节：{chapter_path.name}\n正文 SHA256：{body_sha}\n"
+        f"命中角色：{', '.join(names) or '无'}\n"
+        "本文件仅记录机械输入，人物、因果、时间线语义审阅由宿主完成，不据此宣称已通过。\n"
+    )
+    style = (
+        f"# 风格校准\n\n正文 SHA256：{body_sha}\n"
+        f"对话占比：{quality['dialogue_ratio']}\n词语信号：{quality['ai_phrase_hits']}\n"
+        "指标不是文风判决；优先尊重项目声音和有意修辞。\n"
+    )
+    copyedit = (
+        f"# 校稿报告\n\n正文 SHA256：{body_sha}\n"
+        f"AI痕迹严重程度：{label}\n实际模型润色轮数：{rounds}\n"
+        f"本次续写累计润色调用：{budget['used']}/{budget['limit']}\n"
+        f"闭环：{scan['message']}\n未完成项：{errors}\n\n---\n\n{humanizer_report}"
+    )
+    publish = (
+        f"# 发布判定\n\n章节：{chapter_path.name}\n正文 SHA256：{body_sha}\n"
+        f"结论：{'可发布（通过机械检查，语义审阅另行记录）' if quality_ok else '不建议发布（未通过）'}\n"
+        f"关键词：{'PASS' if quality_ok else 'FAIL'}\n"
+        f"字符数：{quality['char_count']}；失败项：{quality['failures']}\n"
+        f"扫描闭环：{scan['message']}\n"
+    )
+    written = [str(quality_report)]
+    for name, text in (
+        ("memory_update.md", memory_update), ("consistency_report.md", consistency),
+        ("style_calibration.md", style), ("copyedit_report.md", copyedit),
         ("publish_ready.md", publish),
-    ]
-    written = []
-    for name, txt in paths:
+    ):
         out = gate_dir / name
-        write_text(out, txt)
+        write_text(out, text)
         written.append(str(out))
     return written
 
@@ -1848,7 +1848,7 @@ def auto_fix_after_gate_failure(
 
     # 所有修复完成后统一重建门禁产物，确保时间戳晚于章节文件
     if need_rebuild_gate_artifacts:
-        write_gate_artifacts(project_root, chapter_path, query, quality, query_payload)
+        write_gate_artifacts(project_root, chapter_path, query, quality, query_payload, args)
         actions.append("重建门禁产物文件")
 
     return chapter_path, actions, quality
@@ -1898,6 +1898,9 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
     chapter_hash_before = ""
     snapshot_path: Optional[Path] = None
     rollback_applied = False
+    accepted_record: Optional[Dict[str, object]] = None
+    postprocess_degraded = False
+    args._humanizer_budget = {"limit": 2, "used": 0}
     idempotent_hit = False
     # 检索三态：success / skipped（合法轻场景跳过）/ failed（脚本错误、索引损坏）
     retrieval_status = "success"
@@ -2009,7 +2012,8 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
             entries_raw = cache.get("entries")
             entries = entries_raw if isinstance(entries_raw, dict) else {}
             entry = entries.get(request_id)
-            if isinstance(entry, dict) and entry.get("chapter_hash_before") == chapter_hash_before and entry.get("result"):
+            if (isinstance(entry, dict) and entry.get("cache_schema") == 2
+                    and entry.get("chapter_hash_before") == chapter_hash_before and entry.get("result")):
                 result = dict(entry["result"])
                 result["idempotent_hit"] = True
                 result["request_id"] = request_id
@@ -2223,7 +2227,8 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
                 # 尝试使用 LLM 写作
                 try:
                     from novel_chapter_writer import write_chapter
-                    config_overrides = {}
+                    config_overrides = _writer_overrides(args)
+                    config_overrides["skip_humanizer"] = True
                     if args.llm_provider:
                         config_overrides['ai_provider'] = args.llm_provider
                     if args.llm_model:
@@ -2365,7 +2370,7 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
             )
 
         quality_before = evaluate_quality(read_text(chapter_path), args)
-        quality_after = quality_before
+        quality_after = dict(quality_before)
         improve_rounds = 0
         if not draft_mode and args.auto_improve:
             while (not quality_after["passed"]) and improve_rounds < args.auto_improve_rounds:
@@ -2396,7 +2401,7 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         _gate_pacing_et_str = ",".join(_gate_event_types)
 
         if not draft_mode:
-            write_gate_artifacts(project_root, chapter_path, writing_query, quality_after, q_payload)
+            write_gate_artifacts(project_root, chapter_path, writing_query, quality_after, q_payload, args)
             _, gate_payload = run_gate_check(
                 project_root, chapter_path, _gate_pacing_tier, _gate_pacing_et_str
             )
@@ -2430,11 +2435,17 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         if gate_passed_final and chapter_path and generation_status == "completed":
             from canonical_state import accept_chapter
 
-            accept_chapter(project_root, chapter_path, "configured-pipeline", source="pipeline")
+            accepted_record = accept_chapter(project_root, chapter_path, "configured-pipeline", source="pipeline")
+            if not accepted_record.get("memory", {}).get("updated"):
+                postprocess_degraded = True
+                pending_warnings.append(f"正文已接受但记忆提交降级：{accepted_record.get('memory')}")
             b_code, b_out, b_err, b_payload = run_python(
                 SCRIPT_DIR / "plot_rag_retriever.py",
                 ["build", "--project-root", str(project_root)] + _retrieval_engine_args(args),
             )
+            if b_code != 0 or (isinstance(b_payload, dict) and b_payload.get("ok") is False):
+                postprocess_degraded = True
+                pending_warnings.append("正文与接受记录已提交，索引重建失败；保留正文和记忆，请单独重跑 build。旧索引不得作为当前证据。")
         else:
             b_code, b_out, b_err = 0, "", ""
             b_payload = {"ok": True, "skipped": True, "reason": "gate_not_passed"}
@@ -2569,9 +2580,10 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
 
         # 检索失败已降级（rag_degraded）时不因 q_code 阻断整体成功判定：
         # 写作使用降级上下文继续，但结果与门禁产物中已显式标记。
-        ok = ((q_code == 0 or rag_degraded) and b_code == 0 and (draft_mode or gate_passed_final))
+        ok = ((q_code == 0 or rag_degraded) and (b_code == 0 or accepted_record is not None)
+              and (draft_mode or gate_passed_final))
 
-        if (not ok) and args.rollback_on_failure and snapshot_path and original_chapter_path and chapter_path:
+        if (not ok) and accepted_record is None and args.rollback_on_failure and snapshot_path and original_chapter_path and chapter_path:
             restored = restore_snapshot(snapshot_path, original_chapter_path, chapter_path)
             rollback_applied = restored is not None
             if rollback_applied:
@@ -2593,6 +2605,10 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         result: Dict[str, object] = {
             "ok": ok,
             "command": "continue-write",
+            "accepted": accepted_record is not None,
+            "acceptance_result": accepted_record,
+            "postprocess_degraded": postprocess_degraded,
+            "humanizer_budget": dict(args._humanizer_budget),
             "project_root": str(project_root),
             "chapter_file": str(chapter_path) if chapter_path else "",
             "pacing_mode": pacing_mode,
@@ -2651,6 +2667,8 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
             result["next_step"] = "已尝试自动成稿但仍检测到占位标记，请手动补全正文后再执行。"
         elif fallback_applied and llm_error_msg:
             result["next_step"] = f"LLM写作失败({llm_error_msg})，已自动回退到模板模式。请检查API配置后重试。"
+        elif postprocess_degraded:
+            result["next_step"] = "正文已接受，派生更新未完成；先处理 warnings 中的记忆或索引恢复步骤。"
         elif gate_passed_final:
             result["next_step"] = "章节已通过门禁，可进入下一章。"
         else:
@@ -2671,22 +2689,25 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
         result["style_fewshot"] = style_fewshot_info
         result["persona_setup"] = (style_fewshot_info.get("persona") or {}).get("established", None)
 
-        if args.idempotent_cache and result.get("ok"):
+        if args.idempotent_cache and result.get("ok") and not postprocess_degraded:
             cache = load_continue_cache(flow_dir)
             entries_raw = cache.get("entries")
             if not isinstance(entries_raw, dict):
                 entries_raw = {}
                 cache["entries"] = entries_raw
-            entries_raw[request_id] = {
+            final_hash = file_sha1(chapter_path)
+            final_request_id = make_request_id(args, chapter_path, query, final_hash, project_root)
+            entries_raw[final_request_id] = {
+                "cache_schema": 2,
                 "saved_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "chapter_hash_before": chapter_hash_before,
+                "chapter_hash_before": final_hash,
                 "result": result,
             }
             save_continue_cache(flow_dir, cache)
         return result
 
     except Exception as exc:
-        if args.rollback_on_failure and snapshot_path and original_chapter_path and chapter_path:
+        if accepted_record is None and args.rollback_on_failure and snapshot_path and original_chapter_path and chapter_path:
             restored = restore_snapshot(snapshot_path, original_chapter_path, chapter_path)
             rollback_applied = restored is not None
             if rollback_applied:
@@ -2709,10 +2730,14 @@ def continue_write(args: argparse.Namespace) -> Dict[str, object]:
             "project_root": str(project_root),
             "chapter_file": str(chapter_path) if chapter_path else "",
             "error": repr(exc),
+            "accepted": accepted_record is not None,
+            "acceptance_result": accepted_record,
+            "postprocess_degraded": accepted_record is not None,
             "run_id": run_id,
             "rollback_applied": rollback_applied,
             "metrics_summary": metrics_summary,
-            "next_step": "执行发生异常，已尝试回滚章节文件。请检查错误后重试。",
+            "next_step": ("正文已接受并保留；后处理发生异常，请检查错误后恢复派生状态。"
+                          if accepted_record is not None else "执行发生异常，已尝试回滚章节文件。请检查错误后重试。"),
         }
     finally:
         release_lock(lock_file, run_id)
@@ -3079,7 +3104,8 @@ def parse_args() -> argparse.Namespace:
     p_cont.add_argument("--no-auto-fix-kb-misplaced", dest="auto_fix_kb_misplaced", action="store_false")
     p_cont.add_argument("--auto-improve-rounds", type=int, default=1)
     p_cont.add_argument("--max-auto-retry-rounds", type=int, default=2)
-    p_cont.add_argument("--rollback-on-failure", dest="rollback_on_failure", action="store_true", default=True)
+    p_cont.add_argument("--rollback-on-failure", dest="rollback_on_failure", action="store_true", default=True,
+                        help="接受成功前失败时恢复草稿；接受成功后派生失败保留正文并报告降级")
     p_cont.add_argument("--no-rollback-on-failure", dest="rollback_on_failure", action="store_false")
     p_cont.add_argument("--idempotent-cache", dest="idempotent_cache", action="store_true", default=True)
     p_cont.add_argument("--no-idempotent-cache", dest="idempotent_cache", action="store_false")

@@ -135,28 +135,27 @@ def check_quality_report(path: Path) -> Tuple[bool, str]:
     return True, "通过"
 
 
-def check_ai_flavor(path: Path) -> Tuple[bool, str]:
-    """去AI味铁律（novel-writer：每章强制闭环步骤，默认启用，不可选关闭）。
-
-    copyedit_report.md 由 continue-write 写入一行
-    「AI痕迹严重程度：<轻微|中等|严重|未知>」。铁律判定：
-      - 轻微       → 通过（低于自动润色触发线，或已完成润色复核）
-      - 中等 / 严重 → 未完成两遍式去AI味润色，失败
-      - 未知 / 缺失 → 检测未执行，失败
-    """
+def check_ai_flavor(path: Path, chapter: Path | None = None,
+                    project_root: Path | None = None) -> Tuple[bool, str]:
+    """Scan actual manuscript; report labels alone cannot satisfy the gate."""
     txt = path.read_text(encoding="utf-8", errors="ignore")
-    m = re.search(r"AI痕迹严重程度[：:]\s*\*{0,2}(轻微|中等|严重|未知)", txt)
-    if not m:
+    levels = set(re.findall(r"AI痕迹严重程度[：:]\s*\*{0,2}(轻微|中等|严重|未知)", txt))
+    if not levels:
         return False, "copyedit_report.md 缺少「AI痕迹严重程度」结论，去AI味检测未执行"
-    level = m.group(1)
-    if level == "轻微":
-        return True, "AI痕迹轻微，通过"
-    if level == "未知":
-        return False, "去AI味检测未执行（severity=未知），违反每章强制闭环铁律"
-    return False, (
-        f"AI痕迹严重程度为「{level}」，未完成两遍式去AI味润色，"
-        "违反每章强制闭环铁律（执行 /校稿 或设置 NOVEL_LLM_PROVIDER 自动润色后重检）"
-    )
+    if len(levels) != 1:
+        return False, "检测报告含冲突结论，请对当前正文重新生成报告"
+    if chapter is None or project_root is None:
+        return False, "缺少当前正文，不能以报告文字代替实际检测证据"
+    from ai_flavor_state import check_chapter
+
+    try:
+        scan = check_chapter(project_root, chapter)
+    except (OSError, ValueError, UnicodeError, ImportError) as exc:
+        return False, f"去AI味检测未执行（severity=未知）: {exc}"
+    labels = {"low": "轻微", "medium": "中等", "high": "严重"}
+    if next(iter(levels)) != labels[scan["severity"]]:
+        return False, "报告结论与当前正文实际检测不符，请重新生成报告"
+    return scan["passed"], scan["message"]
 
 
 def check_pacing_review(path: Path) -> Tuple[bool, str]:
@@ -409,7 +408,7 @@ def main() -> int:
     # ── 去AI味铁律（每章强制，默认启用，不走 project_policy 开关）──────────
     copyedit_path = artifacts["copyedit_report"]
     if copyedit_path.exists() and copyedit_path.stat().st_size >= args.min_bytes:
-        ok, msg = check_ai_flavor(copyedit_path)
+        ok, msg = check_ai_flavor(copyedit_path, chapter_path, project_root)
         item = {
             "name": "ai_flavor_gate",
             "path": str(copyedit_path),
@@ -566,9 +565,19 @@ def main() -> int:
 
     result["passed"] = len(result["failures"]) == 0
 
+    from ai_flavor_state import check_chapter
+    try:
+        result["ai_flavor"] = check_chapter(project_root, chapter_path)
+    except (OSError, ValueError, UnicodeError, ImportError) as exc:
+        result["ai_flavor"] = {"passed": False, "severity": "unknown", "error": str(exc)}
+    if not result["ai_flavor"]["passed"]:
+        result["passed"] = False
+        if not any(f.startswith("ai_flavor_gate:") for f in result["failures"]):
+            result["failures"].append("ai_flavor_gate: 当前正文检测尚未闭环")
     result["chapter_sha256"] = digest(chapter_path)
     gate_result = gate_dir / "gate_result.json"
-    gate_result.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    from canonical_state import atomic_json
+    atomic_json(gate_result, result)
 
     if args.emit_json:
         emit_path = Path(args.emit_json).expanduser().resolve()

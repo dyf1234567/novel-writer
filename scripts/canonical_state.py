@@ -33,6 +33,55 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _atomic_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=".memory-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def commit_accepted_memory(root: Path, path: Path) -> dict:
+    """Replace this chapter's managed excerpt only after content-bound acceptance.
+
+    Preserve hand-written and legacy summaries; do not invent extracted canon.
+    """
+    path = chapter_path(root, path)
+    ok, reason = acceptance(root, path)
+    if not ok:
+        raise ValueError(f"禁止未接受正文写入长期记忆: {reason}")
+    chapter = chapter_no_from_name(path.name)
+    sha = digest(path)
+    body = path.read_text(encoding="utf-8-sig")
+    if "## 正文" in body:
+        body = body.split("## 正文", 1)[1]
+    body = re.sub(r"<!--.*?-->", "", body, flags=re.S).strip()
+    excerpt = body[:500] + ("…" if len(body) > 500 else "")
+    recent = root / "00_memory/chapter_summaries/recent.md"
+    previous = recent.read_text(encoding="utf-8-sig") if recent.exists() else ""
+    start, end = f"<!-- accepted-summary:{chapter} -->", f"<!-- /accepted-summary:{chapter} -->"
+    entry = f"{start}\n## 第{chapter}章\n\n来源：{path.name}；SHA256：{sha}\n\n正文摘记（非事实裁定）：\n{excerpt}\n{end}"
+    pattern = re.compile(re.escape(start) + r".*?" + re.escape(end), re.S)
+    updated = pattern.sub(lambda _: entry, previous) if pattern.search(previous) else previous.rstrip() + "\n\n" + entry + "\n"
+    if digest(path) != sha or not acceptance(root, path)[0]:
+        raise ValueError("记忆提交期间正文变化；请重新接受")
+    _atomic_text(recent, updated)
+    state = root / "00_memory/novel_state.md"
+    if state.exists():
+        state_text = state.read_text(encoding="utf-8-sig")
+        highest = max((chapter_no_from_name(p.name) for p in accepted_files(root)[0]), default=chapter)
+        state_updated = re.sub(r"当前章节[：:]\s*(?:第)?\d+(?:章)?", f"当前章节：第{highest}章", state_text)
+        if state_updated != state_text:
+            _atomic_text(state, state_updated)
+    return {"updated": True, "chapter": chapter, "sha256": sha, "summary_file": str(recent)}
+
+
 def chapter_path(root: Path, value: Path) -> Path:
     root = root.resolve()
     path = (root / value).resolve() if not value.is_absolute() else value.resolve()
@@ -84,6 +133,13 @@ def accept_chapter(root: Path, path: Path, reviewer: str, source: str = "manual"
     if blocked_text(path.read_text(encoding="utf-8-sig")):
         raise ValueError("拒绝接受占位或模板稿；先完成正文")
     sha = digest(path)
+    from ai_flavor_state import check_chapter
+
+    scan = check_chapter(root, path)
+    if not scan["passed"]:
+        raise ValueError(scan["message"])
+    if scan["chapter_sha256"] != sha:
+        raise ValueError("检测期间正文发生变化，请重新审阅")
     gate = root / "04_editing" / "gate_artifacts" / slugify(path.stem) / "gate_result.json"
     if source == "pipeline" or gate.exists():
         result = _read(gate)
@@ -93,8 +149,16 @@ def accept_chapter(root: Path, path: Path, reviewer: str, source: str = "manual"
     if receipt.exists() and _read(receipt).get("file") != path.name:
         raise ValueError("该章号已由其他文件接受；请在原文件上修订，不能双份收编")
     record = {"schema_version": 1, "file": path.name, "sha256": sha,
-              "reviewer": reviewer.strip(), "source": source}
+              "reviewer": reviewer.strip(), "source": source, "ai_flavor": scan}
+    if digest(path) != sha:
+        raise ValueError("接受期间正文发生变化，请重新审阅")
     atomic_json(receipt, record)
+    try:
+        record["memory"] = commit_accepted_memory(root, path)
+    except (OSError, ValueError, UnicodeError) as exc:
+        # Acceptance is durable; disclose partial completion and provide a retry.
+        record["memory"] = {"updated": False, "error": str(exc),
+                            "next_step": "修复记忆文件后对该章重新 accept；不会重复追加摘记"}
     return record
 
 
@@ -116,6 +180,28 @@ def signature(root: Path) -> str:
     for path in sorted((root / "03_manuscript").glob("*.md")):
         ok, _ = acceptance(root, path)
         rows.append((path.name, digest(path), ok))
+    return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def context_signature(root: Path) -> str:
+    """Fingerprint canonical inputs, excluding rebuildable retrieval/cache data."""
+    rows = [("chapters", signature(root))]
+    memory = root / "00_memory"
+    for path in sorted(memory.rglob("*")):
+        rel = path.relative_to(memory)
+        if (path.is_file() and rel.parts[0] != "retrieval"
+                and path.suffix.lower() in {".md", ".json", ".jsonl", ".yaml", ".yml", ".txt"}):
+            rows.append((rel.as_posix(), digest(path)))
+    for name in (".novel_policy.json", ".novel_writer_config.yaml"):
+        path = root / name
+        rows.append((name, digest(path) if path.exists() else None))
+    receipts = root / ".flow/accepted_chapters"
+    for path in sorted(receipts.glob("*.json")):
+        rows.append(("accepted/" + path.name, digest(path)))
+    gates = root / "04_editing/gate_artifacts"
+    for path in sorted(gates.rglob("*.json")):
+        if path.name in {"ai_flavor_review.json", "gate_result.json", "generation_status.json"}:
+            rows.append(("gates/" + path.relative_to(gates).as_posix(), digest(path)))
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 

@@ -459,7 +459,8 @@ def build_text_report(result: Dict, chapter_name: str) -> str:
 
     lines.append("## 润色建议")
     lines.append("执行 `/校稿` 时，请优先针对以上问题进行两遍式润色：")
-    lines.append("1. **第一遍**：逐一清除上述模式，替换为具体行动/对话/细节")
+    lines.append("这些命中是启发式审阅信号，不能鉴定生成来源。有意修辞、项目声音或正常转场可以经具体理由复核后保留。")
+    lines.append("1. **第一遍**：核查命中项，只修真正机械或不合语境的表达")
     lines.append('2. **审查**：问自己\u300c哪些地方还是明显AI生成的\uff1f\u300d并列出')
     lines.append("3. **第二遍**：针对审查列出的剩余问题再次修改")
 
@@ -476,6 +477,10 @@ _HUMANIZE_PROMPT_TEMPLATE = """\
 本章已通过自动检测，发现以下 AI 写作特征：
 
 {issue_summary}
+
+这些仅为启发式信号，不是 AI 来源鉴定。优先保留本书叙述声音、人物语言和有意修辞；
+普通词语、比喻、内心旁白并非禁用项，不为降分机械删词。下列改法仅针对确认为不合语境的表达。
+保留全部剧情事实、人物动机、时间顺序和伏笔，不添加新事实；章末是否留悬念服从原稿与项目约定。
 
 ---
 
@@ -644,6 +649,21 @@ def cmd_prompt(args: argparse.Namespace) -> None:
     }, ensure_ascii=False, indent=2))
 
 
+def cmd_review(args: argparse.Namespace) -> None:
+    from ai_flavor_state import record_false_positive
+
+    try:
+        if args.confirm != "FALSE_POSITIVE":
+            raise ValueError("需明确提供 --confirm FALSE_POSITIVE；先阅读 detect 输出并逐项复核")
+        record = record_false_positive(Path(args.project_root).resolve(),
+                                       Path(args.chapter_file), args.reviewer, args.reason)
+        print(json.dumps({"ok": True, "review": record,
+                          "next_step": "对当前正文重跑门禁；本记录不豁免其他检查"}, ensure_ascii=False))
+    except (OSError, ValueError, UnicodeError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        raise SystemExit(2)
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="文本人性化处理器 - 检测并消除 AI 写作痕迹"
@@ -660,12 +680,19 @@ def parse_args() -> argparse.Namespace:
     p_prompt = sub.add_parser("prompt", help="生成两遍式润色 prompt 供 Claude 执行")
     p_prompt.add_argument("--chapter-file", required=True, help="章节文件路径")
 
+    p_review = sub.add_parser("review", help="逐项复核命中项为误报；绑定正文与检测器版本")
+    p_review.add_argument("--project-root", required=True)
+    p_review.add_argument("--chapter-file", required=True)
+    p_review.add_argument("--reviewer", required=True)
+    p_review.add_argument("--reason", required=True, help="解释所有命中项为何应按项目声音保留")
+    p_review.add_argument("--confirm", choices=["FALSE_POSITIVE"])
+
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    dispatch = {"detect": cmd_detect, "report": cmd_report, "prompt": cmd_prompt}
+    dispatch = {"detect": cmd_detect, "report": cmd_report, "prompt": cmd_prompt, "review": cmd_review}
     dispatch[args.cmd](args)
     return 0
 

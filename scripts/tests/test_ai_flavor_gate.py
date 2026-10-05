@@ -36,8 +36,15 @@ class TestCheckAiFlavor(unittest.TestCase):
         return p
 
     def test_minor_passes(self):
-        ok, msg = check_ai_flavor(self._write("# 校稿报告\n\n- AI痕迹严重程度：轻微\n" + "x" * 100))
+        report = self._write("# 校稿报告\n\n- AI痕迹严重程度：轻微\n" + "x" * 100)
+        chapter = report.parent / "第1章.md"
+        chapter.write_text("门开了，她站在窗边。", encoding="utf-8")
+        ok, msg = check_ai_flavor(report, chapter, report.parent)
         self.assertTrue(ok)
+
+    def test_label_alone_is_not_scan_evidence(self):
+        ok, _ = check_ai_flavor(self._write("AI痕迹严重程度：轻微"))
+        self.assertFalse(ok)
 
     def test_medium_blocks(self):
         ok, _ = check_ai_flavor(self._write("# 校稿报告\n\n- AI痕迹严重程度：中等\n" + "x" * 100))

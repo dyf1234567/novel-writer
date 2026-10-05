@@ -62,7 +62,7 @@ DEFAULT_CONFIG = {
     "target_chapter_chars": 3500,
     "context_window": 5,  # 加载前5章作为上下文
     "style_consistency": True,
-    "auto_update_memory": True,
+    "auto_update_memory": False,  # Only canonical acceptance may commit memory.
     "run_gate_check": False,
 }
 
@@ -75,16 +75,15 @@ _NOVELIST_PERSONAS: List[str] = [
         "你是一位专注于场景沉浸感的小说家。你相信最好的章节入口是把读者扔进现场，"
         "让细节说话，让感官先于逻辑。你写作时不考虑「章节结构」，只考虑「此刻正在发生什么」。"
         "输出纯小说正文，不得夹带任何标题、注释、分析说明或写作思路。"
-        "严禁出现以下AI高频词：不禁、仿佛、宛如、映入眼帘、心中暗道、目光如炬、"
-        "嘴角微扬、不由自主、此时此刻、意义深远、值得一提。"
+        "避免机械堆叠套话；普通词语或有意修辞不是缺陷，优先尊重项目声音与用户选定风格。"
     ),
     # 1: 人物心理型
     (
         "你是一位擅长人物内心的小说家。你认为情节只是人物做出选择的容器。"
         "你最在意的是：在这一刻，这个人的脑子里转着什么？他/她的行动由内心哪个部分驱动？"
-        "内心世界必须通过具体行为和场景承载，严禁出现「他感到」「她觉得」等情感旁白句式。"
+        "用可信的行为或内心描写承载情感；按项目视角选择写法，不统一禁止情感旁白。"
         "输出纯小说正文，不含任何元说明。"
-        "严禁出现：不禁、仿佛、宛如、心中暗道、不由自主、情不自禁、只见、目光如炬。"
+        "避免机械堆叠套话；普通词语或有意修辞不是缺陷，优先尊重项目声音与用户选定风格。"
     ),
     # 2: 张力节奏型
     (
@@ -92,7 +91,7 @@ _NOVELIST_PERSONAS: List[str] = [
         "你知道读者的注意力是有限的，每一段都要做到承前启后，松紧交替。"
         "对话必须体现角色的不同性格与立场，禁止对话同质化。"
         "输出纯小说正文，严禁在正文内出现任何写作过程的注记或元说明。"
-        "严禁出现：不禁、仿佛、宛如、映入眼帘、此时此刻、值得一提、意义深远、不容忽视。"
+        "避免机械堆叠套话；普通词语或有意修辞不是缺陷，优先尊重项目声音与用户选定风格。"
     ),
 ]
 
@@ -212,13 +211,12 @@ class ContextExtractor:
         """获取前几章作为上下文"""
         chapters = []
         
-        for i in range(max(1, current_chapter_no - context_window), current_chapter_no):
-            # 查找章节文件
-            chapter_files = list(self.manuscript_dir.glob(f"第{i}章*.md"))
-            if not chapter_files:
+        from canonical_state import accepted_files
+        from common import chapter_no_from_name
+        for chapter_file in sorted(accepted_files(self.project_root)[0], key=lambda p: chapter_no_from_name(p.name)):
+            chapter_number = chapter_no_from_name(chapter_file.name)
+            if not max(1, current_chapter_no - context_window) <= chapter_number < current_chapter_no:
                 continue
-            
-            chapter_file = chapter_files[0]
             content = chapter_file.read_text(encoding='utf-8', errors='ignore')
             
             # 提取正文部分（移除Markdown标题和注释）
@@ -238,18 +236,18 @@ class ContextExtractor:
                 # 找到大约最后500字的位置
                 char_count = 0
                 pos = len(body)
-                for i in range(len(body) - 1, -1, -1):
-                    if not body[i].isspace():
+                for char_index in range(len(body) - 1, -1, -1):
+                    if not body[char_index].isspace():
                         char_count += 1
                     if char_count >= 500:
-                        pos = i
+                        pos = char_index
                         break
                 summary = body[pos:]
             else:
                 summary = body
             
             chapters.append({
-                'chapter_no': i,
+                'chapter_no': chapter_number,
                 'file': str(chapter_file),
                 'summary': summary[:1000],  # 限制长度
             })
@@ -961,45 +959,20 @@ def save_chapter_content(chapter_file: Path, content: str, config: Dict[str, Any
 
 
 def update_memory_files(project_root: Path, chapter_no: int, content: str, context: ProjectContext):
-    """更新记忆文件"""
-    memory_dir = project_root / "00_memory"
-    
-    # 更新章节摘要
-    try:
-        # 生成章节摘要（可以简化，取前500字）
-        summary = content[:500] + "..." if len(content) > 500 else content
-        
-        # 保存到最近摘要
-        recent_file = memory_dir / "chapter_summaries" / "recent.md"
-        recent_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        timestamp = time.strftime("%Y-%m-%d %H:%M")
-        entry = f"\n## 第{chapter_no}章 - {timestamp}\n\n{summary}\n\n---\n"
-        
-        # 追加到文件
-        with open(recent_file, 'a', encoding='utf-8') as f:
-            f.write(entry)
-        
-        print(f"[信息] 已更新章节摘要: {recent_file}")
-        
-    except Exception as e:
-        print(f"[警告] 更新章节摘要失败: {e}")
-    
-    # 更新novel_state
-    try:
-        state_file = memory_dir / "novel_state.md"
-        if state_file.exists():
-            content_old = state_file.read_text(encoding='utf-8', errors='ignore')
-            # 更新当前章节进度
-            content_new = re.sub(
-                r'当前章节[：:]\s*\d+',
-                f'当前章节：第{chapter_no}章',
-                content_old
-            )
-            state_file.write_text(content_new, encoding='utf-8')
-            print(f"[信息] 已更新小说状态: {state_file}")
-    except Exception as e:
-        print(f"[警告] 更新小说状态失败: {e}")
+    """Compatibility entry: only commit the accepted on-disk manuscript."""
+    from canonical_state import accepted_files, commit_accepted_memory
+    from common import chapter_no_from_name
+
+    matches = [p for p in accepted_files(project_root)[0]
+               if chapter_no_from_name(p.name) == chapter_no]
+    if len(matches) != 1:
+        raise ValueError("禁止未接受正文写入长期记忆；请先审阅并 accept 当前章节")
+    path = matches[0]
+    actual = path.read_text(encoding="utf-8-sig")
+    body = actual.split("## 正文", 1)[1].strip() if "## 正文" in actual else actual.strip()
+    if content.strip() not in (actual.strip(), body):
+        raise ValueError("传入内容与已接受正文不符；不能把草稿摘要写入正式记忆")
+    return commit_accepted_memory(project_root, path)
 
 
 def _run_humanizer_pass(
@@ -1019,7 +992,7 @@ def _run_humanizer_pass(
         phrase = item.get("phrase", "")
         count = item.get("count", 0)
         if phrase and count:
-            hits.append(f"「{phrase}」出现 {count} 次，需替换或删除")
+            hits.append(f"「{phrase}」出现 {count} 次，请核查是否机械重复；有意修辞可保留")
 
     # 弱化副词密度
     adverb_density = detection.get("weak_adverb_density", 0)
@@ -1045,7 +1018,7 @@ def _run_humanizer_pass(
         f"{hit_summary}\n\n"
         "修改规则：\n"
         "1. 只改有问题的部分，其余文字一字不动\n"
-        "2. 被替换的 AI 词汇改为符合语境的具体描写或动作\n"
+        "2. 这些是启发式信号，不是来源鉴定；保留项目声音、人物语言和有意修辞，不为降低分数机械删词\n"
         "3. 对话同质化问题：根据角色性格调整说话方式\n"
         "4. 不改变情节内容、人物行为或剧情走向\n"
         "5. 输出完整修改后的正文，不加任何说明\n\n"
@@ -1056,6 +1029,7 @@ def _run_humanizer_pass(
         "你是专业文字编辑。接收小说正文和修改清单，"
         "执行最小化精准修改后输出完整正文。"
         "不输出任何说明、注释或修改记录，只输出修改后的小说正文。"
+        "优先遵守原文的叙述声音和以下项目写作要求：" + system_prompt
     )
 
     try:
@@ -1200,10 +1174,8 @@ def write_chapter(
         chinese_chars = count_chinese_chars(generated_content)
         save_chapter_content(chapter_file, generated_content, config)
 
-        if config.get("auto_update_memory", True):
-            update_memory_files(
-                project_root, context.chapter_no, generated_content, context
-            )
+        # A generated/polished draft is not canon, even if a legacy config asks
+        # for automatic memory updates. accept_chapter commits the final text.
 
         result: Dict[str, Any] = {
             "ok": True,
@@ -1212,6 +1184,8 @@ def write_chapter(
             "chapter_no": context.chapter_no,
             "provider": config.get("ai_provider"),
             "model": config.get("model"),
+            "memory_updated": False,
+            "memory_status": "pending_acceptance",
             "entry_mode": PromptGenerator._ENTRY_MODES[
                 (context.chapter_no - 1) % len(PromptGenerator._ENTRY_MODES)
             ],
@@ -1403,10 +1377,7 @@ def main():
         # 保存到文件
         save_chapter_content(chapter_file, generated_content, config)
         
-        # 更新记忆文件（如果启用）
-        if config.get('auto_update_memory', True) and not args.no_update_memory:
-            print("[信息] 正在更新记忆文件...")
-            update_memory_files(project_root, context.chapter_no, generated_content, context)
+        print("[信息] 草稿记忆未提交；审阅并接受当前正文后才更新长期摘记。")
         
         print("\n" + "="*60)
         print("✅ 章节生成完成！")
@@ -1422,7 +1393,7 @@ def main():
         
         print("\n[下一步建议]")
         print("1. 审阅生成的内容，必要时进行人工修改")
-        print("2. 执行 /更新记忆 确保记忆文件同步")
+        print("2. 执行章节门禁并使用 canonical_state.py accept 接受正文，再更新索引")
         print("3. 执行 /继续写 进入下一章")
         
     except Exception as e:

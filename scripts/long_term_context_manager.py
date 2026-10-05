@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime
+from canonical_state import accepted_files, context_signature, require_current_index
+from common import chapter_no_from_name
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,7 @@ class LongTermContextManager:
         # 上下文缓存
         self._context_cache: Optional[LongTermContext] = None
         self._cache_chapter: int = 0
+        self._cache_signature: str = ""
     
     def get_context_for_chapter(self, chapter_no: int, force_refresh: bool = False) -> LongTermContext:
         """
@@ -104,7 +107,9 @@ class LongTermContextManager:
             长期上下文对象
         """
         # 检查缓存
-        if not force_refresh and self._context_cache and self._cache_chapter == chapter_no:
+        current_signature = context_signature(self.project_root)
+        if (not force_refresh and self._context_cache and self._cache_chapter == chapter_no
+                and self._cache_signature == current_signature):
             return self._context_cache
         
         # 计算动态窗口大小
@@ -131,6 +136,7 @@ class LongTermContextManager:
         # 更新缓存
         self._context_cache = context
         self._cache_chapter = chapter_no
+        self._cache_signature = current_signature
         
         return context
     
@@ -150,9 +156,16 @@ class LongTermContextManager:
         if not meta_dir.exists():
             # 回退到直接读取章节文件
             return self._get_chapter_summaries_from_files(chapter_no, window_size)
+        try:
+            require_current_index(self.project_root, "legacy")
+        except (OSError, ValueError, RuntimeError):
+            return self._get_chapter_summaries_from_files(chapter_no, window_size)
+        fallback = {s.chapter_no: s for s in self._get_chapter_summaries_from_files(chapter_no, window_size)}
         
         # 读取最近章节的元数据（与 plot_rag_retriever 的稳定 ID 命名一致）
         for i in range(max(1, chapter_no - window_size), chapter_no):
+            if i not in fallback:
+                continue
             meta_file = meta_dir / f"ch{i:04d}.meta.json"
             if meta_file.exists():
                 try:
@@ -170,7 +183,10 @@ class LongTermContextManager:
                     summaries.append(summary)
                 except Exception as exc:
                     logger.warning("解析章节元数据失败: %s (%s)", meta_file, exc)
+                    summaries.append(fallback[i])
                     continue
+            else:
+                summaries.append(fallback[i])
 
         return summaries
 
@@ -181,21 +197,10 @@ class LongTermContextManager:
         if not self.manuscript_dir.exists():
             return summaries
         
-        # 找到最近的章节文件
-        for i in range(max(1, chapter_no - window_size), chapter_no):
-            # 尝试多种文件名格式
-            patterns = [
-                f"第{i}章*.md",
-                f"第{i:03d}章*.md",
-                f"chapter_{i:03d}*.md"
-            ]
-            
-            chapter_file = None
-            for pattern in patterns:
-                matches = list(self.manuscript_dir.glob(pattern))
-                if matches:
-                    chapter_file = matches[0]
-                    break
+        for chapter_file in sorted(accepted_files(self.project_root)[0], key=lambda p: chapter_no_from_name(p.name)):
+            i = chapter_no_from_name(chapter_file.name)
+            if not max(1, chapter_no - window_size) <= i < chapter_no:
+                continue
             
             if chapter_file and chapter_file.exists():
                 try:

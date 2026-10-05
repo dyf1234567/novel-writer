@@ -70,7 +70,9 @@ def map_failure_to_steps(failure: str) -> List[str]:
         return [
             "执行 /校稿 完成两遍式去AI味润色，直至 AI痕迹严重程度降为「轻微」；"
             "或设置 NOVEL_LLM_PROVIDER 环境变量后重跑 /继续写 由模型自动润色。",
-            "润色完成后重新执行 /门禁检查。",
+            "若是有意修辞或项目声音导致误报，先阅读 detect 输出，再用 text_humanizer.py review "
+            "逐项说明保留理由并显式确认 FALSE_POSITIVE；不能将写作偏好当作来源鉴定。",
+            "复核或润色后，重新生成当前正文的报告并执行 /门禁检查；不豁免其他阻断项。",
         ]
 
     if f.startswith("publish_ready"):
