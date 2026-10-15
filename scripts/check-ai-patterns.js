@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const { loadStyleWhitelist, maskStyleText } = require('./style-whitelist.js');
+const { urlSpans, insideSpans } = require('./inline-spans.js');
 const path = require('path');
 
 const USAGE = `Usage: node check-ai-patterns.js [--check] [--json] [--fail-on=blocking|all] <file...>
@@ -486,8 +487,12 @@ function scanProsePatterns(proseLines) {
     if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
 
     const dashPattern = /——|—|--+/g;
+    // 链接里的 `--` 是地址的一部分，不是破折号。报成 blocking 等于逼作者删掉链接才能过闸，
+    // 与 normalize-punctuation.js 放过 URL 是同一条判据的两半。
+    const urls = urlSpans(text);
     let dash;
     while ((dash = dashPattern.exec(text)) !== null) {
+      if (insideSpans(dash.index, dash.index + dash[0].length, urls)) continue;
       findings.push({
         line: lineNo,
         column: dash.index + 1,

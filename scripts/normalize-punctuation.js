@@ -3,19 +3,25 @@
 
 const fs = require('fs');
 const { loadStyleWhitelist, styleSpans } = require('./style-whitelist.js');
+const { urlSpans } = require('./inline-spans.js');
 const path = require('path');
 
-const USAGE = `Usage: node normalize-punctuation.js [--check] [--quote-mode keep|ascii|yan] <file...>
+const USAGE = `Usage: node normalize-punctuation.js [--check] [--json] [--quote-mode keep|ascii|yan] <file...>
 
 Normalize正文 punctuation deterministically:
   - replace ellipses, em dashes, and double hyphens with Chinese punctuation
   - remove markdown divider lines (---) from正文
   - preserve pause punctuation covered by book-local .deslop-whitelist literals
+  - leave markdown table delimiter rows and URLs untouched
   - keep quote style by default; convert quotes only when explicitly requested
+
+--json prints {"findings":[…]}: every substitution actually applied (or, with --check,
+pending), so a caller can show the author what this tool changed instead of a bare flag.
 `;
 
 const options = {
   check: false,
+  json: false,
   quoteMode: 'keep',
   files: [],
 };
@@ -24,6 +30,8 @@ for (let i = 2; i < process.argv.length; i += 1) {
   const arg = process.argv[i];
   if (arg === '--check') {
     options.check = true;
+  } else if (arg === '--json') {
+    options.json = true;
   } else if (arg === '--quote-mode') {
     const value = process.argv[i + 1];
     if (!value) die('--quote-mode requires keep, ascii, or yan');
@@ -51,6 +59,15 @@ if (options.files.length === 0) {
 let totalFindings = 0;
 let changedFiles = 0;
 let failed = false;
+const collected = [];
+
+// 停顿标点是一律替换的，破折号的原始意图只有作者能判。每条改写都把要复核什么写进
+// message，`em-dash` 这条 blocking 被本工具先行消化时，作者仍看得到那处改动。
+const PAUSE_REVIEW_HINTS = {
+  'em-dash': '破折号按功能复核：打断→动作 beat/短句，拖长音→省略或动作，插入说明→逗号/冒号；原意不是停顿就改回来。',
+  'double-hyphen': '连续半角横线按破折号处理；若本是区间号、代码或链接，改回原样。',
+  'ellipsis': '省略号按语气断点复核：成串省略多半该改成一个动作或一句短句。',
+};
 
 for (const file of options.files) {
   const fullPath = path.resolve(file);
@@ -68,10 +85,16 @@ for (const file of options.files) {
   catch (error) { die(`${file}: unable to read .deslop-whitelist (${error.message})`); }
   const result = normalizeDocument(input, options.quoteMode, whitelist);
   totalFindings += result.findings.length;
+  const applied = !options.check && result.output !== input;
+  for (const finding of result.findings) {
+    collected.push({ file, ...finding, severity: 'advisory', applied });
+  }
 
   if (options.check) {
-    for (const finding of result.findings) {
-      console.log(`${file}:${finding.line}:${finding.column}: ${finding.type}: ${finding.message}`);
+    if (!options.json) {
+      for (const finding of result.findings) {
+        console.log(`${file}:${finding.line}:${finding.column}: ${finding.type}: ${finding.message}`);
+      }
     }
     continue;
   }
@@ -79,8 +102,14 @@ for (const file of options.files) {
   if (result.output !== input) {
     fs.writeFileSync(fullPath, result.output, 'utf8');
     changedFiles += 1;
-    console.log(`${file}: normalized (${result.findings.length} issue${result.findings.length === 1 ? '' : 's'})`);
+    if (!options.json) {
+      console.log(`${file}: normalized (${result.findings.length} issue${result.findings.length === 1 ? '' : 's'})`);
+    }
   }
+}
+
+if (options.json) {
+  console.log(JSON.stringify({ findings: collected }, null, 2));
 }
 
 if (failed) {
@@ -89,7 +118,7 @@ if (failed) {
 if (options.check && totalFindings > 0) {
   process.exit(1);
 }
-if (!options.check) {
+if (!options.check && !options.json) {
   console.log(`Done. Changed files: ${changedFiles}`);
 }
 
@@ -148,6 +177,13 @@ function normalizeDocument(input, quoteMode, whitelist) {
     const openingFence = parseOpeningFence(line);
     if (openingFence) {
       fence = openingFence;
+      outputLines.push(line + ending);
+      continue;
+    }
+
+    // 表格分隔行里的 `--` 是 markdown 结构，不是停顿标点：换成「，」后整张表不再是表，
+    // 系统面板、属性表、账目这类正文里常见的写法会静默散架。
+    if (isTableDelimiterRow(line)) {
       outputLines.push(line + ending);
       continue;
     }
@@ -250,7 +286,8 @@ function normalizePausePunctuation(line, lineNo, commentOpen, whitelist) {
   for (;;) {
     const comments = htmlCommentSpans(current, commentOpen);
     commentOpenAfter = comments.open;
-    const pass = normalizePausePunctuationPass(current, lineNo, comments.spans.concat(styleSpans(current, whitelist)));
+    const pass = normalizePausePunctuationPass(
+      current, lineNo, comments.spans.concat(styleSpans(current, whitelist), urlSpans(current)));
     if (findings === null) findings = pass.findings;
     if (pass.line === current) break;
     current = pass.line;
@@ -274,12 +311,15 @@ function normalizePausePunctuationPass(line, lineNo, commentSpans) {
     if (insideSpans(match.index, match.index + token.length, commentSpans)) continue;
     output += original.slice(lastIndex, match.index);
     const replacement = choosePauseReplacement(original, match.index, token.length);
+    const type = getPauseType(token);
     output += replacement;
     findings.push({
       line: lineNo,
       column: match.index + 1,
-      type: getPauseType(token),
-      message: replacement ? `替换为「${replacement}」。` : '移除重复标点。',
+      type,
+      message: replacement
+        ? `替换为「${replacement}」。${PAUSE_REVIEW_HINTS[type] || ''}`.trimEnd()
+        : '移除重复标点。',
     });
     lastIndex = match.index + token.length;
   }
@@ -329,6 +369,12 @@ function hasYamlFrontMatter(lines) {
     if (/^[A-Za-z0-9_-]+:\s*/.test(trimmed)) sawYamlField = true;
   }
   return false;
+}
+
+// `|---|:--:|` 这类表格分隔行：只由竖线、横线、冒号与空格组成，且至少有一根竖线。
+function isTableDelimiterRow(line) {
+  const trimmed = line.trim();
+  return trimmed.includes('|') && /^\|?(\s*:?-{2,}:?\s*\|)+$/.test(trimmed);
 }
 
 function getPauseType(token) {

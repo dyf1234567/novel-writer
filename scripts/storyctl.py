@@ -321,21 +321,30 @@ def chapter_check(project: Path, chapter: int, author_range: Any = None) -> dict
     }
 
 
-def fix_punctuation(project: Path, chapter: int, author_range: Any = None) -> bool:
+def fix_punctuation(project: Path, chapter: int, author_range: Any = None) -> list[dict[str, Any]] | None:
     """Run the deterministic punctuation normalizer on the chapter body in place.
 
     Folding it into `chapter check --fix-punctuation` lets the parent flow close a
     chapter with one call instead of running each cleanup script separately.
+
+    Returns every substitution applied, or None when no cleanup was requested. The
+    normalizer rewrites dashes and ellipses wholesale, which also removes the very
+    tokens `em-dash` reports as blocking — so the changes must travel back to the
+    author instead of collapsing into a boolean.
     """
     _, body, _, _ = _project_files(project, chapter, author_range)
     node = shutil.which("node")
     script = Path(__file__).with_name("normalize-punctuation.js")
     if node is None or not script.is_file():
-        return False  # chapter check reports the missing tool in quality.tool_errors
-    before = body.read_bytes()
-    subprocess.run([node, str(script), str(body)], text=True, encoding="utf-8",
-                   capture_output=True, check=False)
-    return body.read_bytes() != before
+        return None  # chapter check reports the missing tool in quality.tool_errors
+    completed = subprocess.run(
+        [node, str(script), "--json", str(body)],
+        text=True, encoding="utf-8", capture_output=True, check=False,
+    )
+    findings = _json_findings(completed.stdout)
+    if findings is None:
+        return [] if completed.returncode == 0 else None
+    return [row for row in findings if row.get("applied")]
 
 
 def _require_acceptable_length(
@@ -537,10 +546,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _wordcount_command(args, author_range)
     try:
         if args.chapter_command == "check":
-            fixed = fix_punctuation(args.project, args.chapter, author_range) if args.fix_punctuation else None
+            changes = fix_punctuation(args.project, args.chapter, author_range) if args.fix_punctuation else None
             result = chapter_check(args.project, args.chapter, author_range)
-            if fixed is not None:
-                result["punctuation_fixed"] = fixed
+            if changes is not None:
+                result["punctuation_changes"] = changes
         else:
             result = chapter_commit(
                 args.project, args.chapter, args.input,

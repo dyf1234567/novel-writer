@@ -14,7 +14,18 @@ author_memory_commit.py、build_architect_brief.py，以及 references/ 下的�
 anti-ai-writing 等）。
 
 本地修改：plot_rag_retriever.py 的检索层、style-writer 桥接与 SKILL.md 的流程
-融合为本仓库新增，其余文件保持上游原样。
+融合为本仓库新增。
+
+本仓库对上游文件另有以下改动，同步上游时需手工比对：
+
+- `scripts/normalize-punctuation.js`：放过 markdown 表格分隔行与 URL 内的横线省略号；
+  新增 `--json`，逐条回传已应用的替换并附破折号功能复核提示。
+- `scripts/check-ai-patterns.js`：`em-dash` 规则跳过 URL 区间内的横线。
+- `scripts/storyctl.py`：`chapter check --fix-punctuation` 以 `punctuation_changes`
+  数组返回改写明细，取代原先的 `punctuation_fixed` 布尔值。
+- `scripts/inline-spans.js`：本仓库新增的共享判定模块（URL 区间），供上面两个检测器使用。
+
+其余文件保持上游原样。
 
 ---
 
