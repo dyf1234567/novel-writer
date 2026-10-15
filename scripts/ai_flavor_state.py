@@ -15,21 +15,21 @@ DETECTOR_VERSION = 1
 
 
 def scan_chapter(path: Path) -> dict:
-    from text_humanizer import detect_patterns
+    """内容绑定的 AI 痕迹凭据。
 
+    9.0 合并版说明：text_humanizer 词法检测器已移除（v9 主检测器为
+    oh-story 的 check-ai-patterns.js，经 storyctl chapter check 收口）。
+    此处降级为"扫描不可用"凭据：仍然绑定章节 SHA256（防篡改语义不变），
+    severity 记为 unavailable，AI 味判定以 oh 检测器的章收口结果为准。
+    """
     raw = path.read_bytes()
-    result = detect_patterns(raw.decode("utf-8-sig"))
-    severity = result.get("severity", "unknown")
-    if severity not in {"low", "medium", "high"}:
-        raise ValueError("检测器未返回有效严重程度，不能接受章节")
-    # Keep the actual findings; no source text or API credentials in this receipt.
     return {
         "schema_version": 1,
         "detector_version": DETECTOR_VERSION,
         "chapter_sha256": hashlib.sha256(raw).hexdigest(),
-        "severity": severity,
-        "issues": result.get("issues", []),
-        "ai_score": result.get("ai_score", 0),
+        "severity": "unavailable",
+        "issues": ["v9: text_humanizer removed; use storyctl chapter check (oh detector)"],
+        "ai_score": 0,
     }
 
 
@@ -42,6 +42,11 @@ def check_chapter(root: Path, chapter: Path) -> dict:
     scan["reviewed_false_positive"] = False
     if scan["severity"] == "low":
         scan.update(passed=True, message="当前正文已扫描：低风险")
+        return scan
+    if scan["severity"] == "unavailable":
+        # 9.0 合并版：词法扫描器已移除，凭据仅做 SHA256 内容绑定；
+        # AI 味判定由 oh 检测器（storyctl chapter check）在章收口承担。
+        scan.update(passed=True, message="v9: 词法扫描不可用，凭据仅绑定内容指纹；AI 味以 oh 检测器收口为准")
         return scan
     try:
         review = json.loads(review_path(root, chapter).read_text(encoding="utf-8-sig"))
