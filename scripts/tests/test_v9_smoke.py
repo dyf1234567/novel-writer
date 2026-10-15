@@ -87,3 +87,56 @@ class TestV9RetrievalPipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPunctuationNormalizer(unittest.TestCase):
+    """锚定 9.1.0 修复：normalize 透传表格/URL，检测器豁免 URL 内破折号。
+
+    回归背景：normalize-punctuation.js 曾把表格分隔行改写成 |，|、替换 URL 内
+    的 -- 与 ... 致链接断裂；且 normalizer 与 detector 对 URL 的定义不同源时，
+    门禁会变成不可满足（detector 报 URL 内 -- 为 blocking，永远修不净）。
+    """
+
+    SAMPLE = (
+        "# 第001章 测试\n\n"
+        "| 姓名 | 编号 | 备注 |\n|---|---|---|\n| 陈洲 | G-2217 | 司机 |\n\n"
+        "参考资料在 https://example.com/a--b/...end 网站上。\n\n"
+        "他顿了顿——想说什么……又咽了回去。\n"
+    )
+
+    def setUp(self):
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("需要 Node.js（章收口检测链路依赖）")
+        self.dir = Path(tempfile.mkdtemp(prefix="v9_punct_"))
+        self.chapter = self.dir / "第001章_测试.md"
+        self.chapter.write_text(self.SAMPLE, encoding="utf-8")
+        self.addCleanup(lambda: shutil.rmtree(self.dir, ignore_errors=True))
+
+    def _node(self, script, *args):
+        import subprocess
+        return subprocess.run(
+            ["node", str(SCRIPT_DIR / script), *args, str(self.chapter)],
+            capture_output=True, text=True, encoding="utf-8")
+
+    def test_table_and_url_pass_through(self):
+        proc = self._node("normalize-punctuation.js", "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr[-300:])
+        body = self.chapter.read_text(encoding="utf-8")
+        self.assertIn("|---|---|---|", body, "表格分隔行必须原样保留")
+        self.assertIn("https://example.com/a--b/...end", body, "URL 内 -- 与 ... 必须原样")
+        self.assertNotIn("——", body, "正文破折号应被替换")
+        payload = json.loads(proc.stdout)
+        self.assertGreaterEqual(len(payload.get("findings", [])), 2, "每处替换都应出现在 --json 明细中")
+        for f in payload.get("findings", []):
+            self.assertIn("line", f)
+            self.assertIn("column", f)
+            self.assertTrue(f.get("applied"))
+
+    def test_detector_exempts_url_but_flags_prose_dash(self):
+        proc = self._node("check-ai-patterns.js", "--check")
+        self.assertEqual(proc.returncode, 1, "正文真破折号应报 blocking（exit 1）")
+        # 命中只允许落在正文行（第 9 行），URL 行（第 7 行）与表格行不得出现
+        for line in (proc.stdout or "").splitlines():
+            if "[blocking]" in line:
+                self.assertIn(":9:", line, f"blocking 只应落在正文行: {line[:80]}")
