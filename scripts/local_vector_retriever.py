@@ -22,6 +22,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 from common import ensure_dir, read_text
 from canonical_state import accepted_files, begin_index, mark_index, require_current_index
+from canonical_state import retrieval_dir as retrieval_dir_for, use_retrieval_dir
 from plot_rag_retriever import (
     _BEAT_SHEET_STUB,
     _NOVEL_FLOW_STUB,
@@ -110,7 +111,7 @@ def embed_texts(
 
 
 def _connect(project_root: Path) -> sqlite3.Connection:
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     ensure_dir(retrieval_dir)
     conn = sqlite3.connect(str(retrieval_dir / DB_FILENAME))
     conn.execute("PRAGMA journal_mode=WAL")
@@ -240,7 +241,7 @@ def build_index(
         "rebuilt_docs": rebuilt,
         "reused_docs": reused,
         "skipped_stubs": skipped,
-        "index_file": str(project_root / "00_memory" / "retrieval" / DB_FILENAME),
+        "index_file": str(retrieval_dir_for(project_root) / DB_FILENAME),
         "semantic": provider != "hash",
     }
 
@@ -308,6 +309,8 @@ def parse_args() -> argparse.Namespace:
     build.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
     build.add_argument("--batch-size", type=int, default=16)
     build.add_argument("--full-rebuild", action="store_true")
+    build.add_argument("--retrieval-dir", default=None,
+                             help="索引与缓存目录，默认 00_memory/retrieval；相对书目录解析")
     query = sub.add_parser("query")
     query.add_argument("--project-root", required=True)
     query.add_argument("--query", required=True)
@@ -315,11 +318,14 @@ def parse_args() -> argparse.Namespace:
     query.add_argument("--provider", choices=["ollama", "sentence-transformers", "hash"], default=DEFAULT_PROVIDER)
     query.add_argument("--model", default=DEFAULT_MODEL)
     query.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
+    query.add_argument("--retrieval-dir", default=None,
+                             help="索引与缓存目录，默认 00_memory/retrieval；相对书目录解析")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    use_retrieval_dir(getattr(args, "retrieval_dir", None))
     root = Path(args.project_root).expanduser().resolve()
     try:
         if args.cmd == "build":

@@ -89,6 +89,27 @@ def manuscript_dir(root: Path) -> Path:
     return (root / override) if override else (root / "03_manuscript")
 
 
+def retrieval_dir(root: Path) -> Path:
+    """索引、缓存与接受签名的落盘目录，默认 `00_memory/retrieval`。
+
+    `NOVEL_RETRIEVAL_DIR`（或各检索入口的 `--retrieval-dir`）可改到书目录下别处，例如
+    `.story/retrieval`，让 `00_memory/` 只留记忆与状态文件。搬走的只是可重建的索引数据：
+    `00_memory/character_tracker.md`、`novel_state.md`、`chapter_summaries/` 这些不动。
+    绝对路径原样使用，相对路径按书目录解析。
+    """
+    override = os.environ.get("NOVEL_RETRIEVAL_DIR", "").strip()
+    if not override:
+        return root / "00_memory" / "retrieval"
+    path = Path(override)
+    return path if path.is_absolute() else root / path
+
+
+def use_retrieval_dir(value: object) -> None:
+    """把 `--retrieval-dir` 写进环境变量，让本进程内所有调用点解析到同一个目录。"""
+    if isinstance(value, str) and value.strip():
+        os.environ["NOVEL_RETRIEVAL_DIR"] = value.strip()
+
+
 def chapter_path(root: Path, value: Path) -> Path:
     root = root.resolve()
     path = (root / value).resolve() if not value.is_absolute() else value.resolve()
@@ -194,9 +215,13 @@ def context_signature(root: Path) -> str:
     """Fingerprint canonical inputs, excluding rebuildable retrieval/cache data."""
     rows = [("chapters", signature(root))]
     memory = root / "00_memory"
+    # 检索目录整体排除：默认在 00_memory/retrieval，被 NOVEL_RETRIEVAL_DIR 挪走后也不该
+    # 进指纹——否则 build 写下的索引会改动自己的签名，mark_index 反判「建库期间正文变化」。
+    moved = retrieval_dir(root).resolve()
     for path in sorted(memory.rglob("*")):
         rel = path.relative_to(memory)
         if (path.is_file() and rel.parts[0] != "retrieval"
+                and not path.resolve().is_relative_to(moved)
                 and path.suffix.lower() in {".md", ".json", ".jsonl", ".yaml", ".yml", ".txt"}):
             rows.append((rel.as_posix(), digest(path)))
     for name in (".novel_policy.json", ".novel_writer_config.yaml"):
@@ -215,13 +240,13 @@ def context_signature(root: Path) -> str:
 def mark_index(root: Path, engine: str, initial_signature: str) -> None:
     if signature(root) != initial_signature:
         raise RuntimeError("建库期间正文或接受状态变化，请重新 build")
-    atomic_json(root / "00_memory/retrieval" / f"canonical_{engine}.json",
+    atomic_json(retrieval_dir(root) / f"canonical_{engine}.json",
                 {"schema_version": 1, "signature": initial_signature})
 
 
 def begin_index(root: Path, engine: str, incremental: bool) -> tuple[str, bool]:
     current = signature(root)
-    path = root / "00_memory/retrieval" / f"canonical_{engine}.json"
+    path = retrieval_dir(root) / f"canonical_{engine}.json"
     try:
         reuse = incremental and _read(path).get("signature") == current
     except (OSError, ValueError):
@@ -231,7 +256,7 @@ def begin_index(root: Path, engine: str, incremental: bool) -> tuple[str, bool]:
 
 
 def require_current_index(root: Path, engine: str) -> None:
-    path = root / "00_memory/retrieval" / f"canonical_{engine}.json"
+    path = retrieval_dir(root) / f"canonical_{engine}.json"
     if not path.exists() or _read(path).get("signature") != signature(root):
         raise RuntimeError(f"{engine} 索引缺少接受凭证或已过期；审阅并接受正文后重新 build")
 

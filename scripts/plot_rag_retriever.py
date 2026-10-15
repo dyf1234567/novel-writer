@@ -20,6 +20,7 @@ from common import ensure_dir, read_text, slugify, chapter_no_from_name, normali
 from config import get_retrieval_config
 from performance import Tokenizer
 from canonical_state import accepted_files, begin_index, mark_index, require_current_index, manuscript_dir
+from canonical_state import retrieval_dir as retrieval_dir_for, use_retrieval_dir
 
 # 从集中配置加载检索相关常量
 _retrieval_config = get_retrieval_config()
@@ -454,7 +455,7 @@ def cleanup_stale_meta_files(retrieval_dir: Path, docs: List[Dict[str, object]])
 def build_index(project_root: Path, keyword_top_n: int = 20, incremental: bool = True) -> Dict[str, object]:
     canonical_sig, incremental = begin_index(project_root, "legacy", incremental)
     man_dir = manuscript_dir(project_root)
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     ensure_dir(retrieval_dir)
     index_file = retrieval_dir / "story_index.json"
 
@@ -657,7 +658,7 @@ def retrieve(
     neighbors = _load_graph_neighbors(project_root)
     neighbor_set = {nb for e in query_entities for nb in neighbors.get(e, [])}
     entity_chapter_map: Dict[str, List[str]] = {}
-    emap_file = project_root / "00_memory" / "retrieval" / "entity_chapter_map.json"
+    emap_file = retrieval_dir_for(project_root) / "entity_chapter_map.json"
     if emap_file.exists():
         try:
             emap_data = json.loads(emap_file.read_text(encoding="utf-8"))
@@ -856,7 +857,7 @@ def fts5_build_index(
     一律不进入索引。
     """
     man_dir = manuscript_dir(project_root)
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     ensure_dir(retrieval_dir)
     names = load_character_names(project_root)
     alias_map = load_character_alias_map(project_root)
@@ -1164,7 +1165,7 @@ def fts5_retrieve(
 
 
 def write_context_md(project_root: Path, result: Dict[str, object]) -> Path:
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     ensure_dir(retrieval_dir)
     out = retrieval_dir / "next_plot_context.md"
 
@@ -1258,6 +1259,8 @@ def parse_args() -> argparse.Namespace:
                          default=os.environ.get("NOVEL_VECTOR_PROVIDER", "ollama"))
     p_build.add_argument("--vector-model", default=os.environ.get("NOVEL_VECTOR_MODEL", "bge-m3"))
     p_build.add_argument("--ollama-url", default=os.environ.get("NOVEL_VECTOR_OLLAMA_URL", "http://127.0.0.1:11434"))
+    p_build.add_argument("--retrieval-dir", default=None,
+                         help="索引与缓存目录，默认 00_memory/retrieval；相对书目录解析，例如 --retrieval-dir .story/retrieval")
 
     p_query = sub.add_parser("query", help="检索新剧情关联章节")
     p_query.add_argument("--project-root", required=True)
@@ -1282,6 +1285,8 @@ def parse_args() -> argparse.Namespace:
     p_query.add_argument("--vector-model", default=os.environ.get("NOVEL_VECTOR_MODEL", "bge-m3"))
     p_query.add_argument("--ollama-url", default=os.environ.get("NOVEL_VECTOR_OLLAMA_URL", "http://127.0.0.1:11434"))
     p_query.add_argument("--emit-json")
+    p_query.add_argument("--retrieval-dir", default=None,
+                         help="索引与缓存目录，须与 build 时一致；默认 00_memory/retrieval")
 
     return p.parse_args()
 
@@ -1322,7 +1327,7 @@ def _skipped_result_payload(
 
 def _run_query_legacy(args: argparse.Namespace, project_root: Path) -> int:
     """legacy 引擎查询流：JSON 章级索引 + 启发式加权（行为与历史版本一致）。"""
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     index_file = retrieval_dir / "story_index.json"
     if args.auto_build or not index_file.exists():
         index = build_index(project_root, incremental=not args.full_rebuild)
@@ -1405,7 +1410,7 @@ def _run_query_legacy(args: argparse.Namespace, project_root: Path) -> int:
 
 def _run_query_fts5(args: argparse.Namespace, project_root: Path) -> int:
     """FTS5 引擎查询流：SQLite 片段级索引 + BM25 召回 + 加权重排。"""
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     db_file = retrieval_dir / FTS5_DB_FILENAME
     if args.auto_build or not db_file.exists():
         fts5_build_index(
@@ -1662,7 +1667,7 @@ def _rrf_hybrid(lexical: Dict[str, object], vector: Dict[str, object], top_k: in
 
 
 def _run_query_hybrid(args: argparse.Namespace, project_root: Path) -> int:
-    retrieval_dir = project_root / "00_memory" / "retrieval"
+    retrieval_dir = retrieval_dir_for(project_root)
     if args.auto_build or not (retrieval_dir / FTS5_DB_FILENAME).exists():
         _hybrid_build(args, project_root)
 
@@ -1730,6 +1735,7 @@ def _run_query_hybrid(args: argparse.Namespace, project_root: Path) -> int:
 
 def _main() -> int:
     args = parse_args()
+    use_retrieval_dir(getattr(args, "retrieval_dir", None))
     project_root = Path(args.project_root).expanduser().resolve()
 
     if args.cmd == "build":
@@ -1755,7 +1761,7 @@ def _main() -> int:
                 "reused_docs": index.get("reused_docs", 0),
                 "rebuilt_docs": index.get("rebuilt_docs", 0),
                 "acceptance_warnings": index.get("acceptance_warnings", []),
-                "index_file": str(project_root / "00_memory" / "retrieval" / "story_index.json"),
+                "index_file": str(retrieval_dir_for(project_root) / "story_index.json"),
             }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0

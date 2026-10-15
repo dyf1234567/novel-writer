@@ -1,6 +1,6 @@
 ---
 name: novel-writer
-version: 9.1.0
+version: 9.2.0
 description: 中文长篇小说全流程创作（v9 合并版：写作工艺层源自 oh-story，检索与风格层为 novel-writer 原生）。当任务涉及长篇小说的规划、细纲、正文写作、续写、修改、追踪、去AI味、旧信息检索或作者风格应用时使用。触发方式：/novel-writer、写长篇、开书、出卷纲、补细纲、日更、续写、修改第X章、旧信息查找。
 ---
 
@@ -39,6 +39,8 @@ NOVEL_MANUSCRIPT_DIR=正文 python scripts/plot_rag_retriever.py query --project
 # 可选本地语义检索（需 Ollama + bge-m3）
 NOVEL_MANUSCRIPT_DIR=正文 python scripts/local_vector_retriever.py build --project-root <书目录>
 ```
+
+- 索引默认落 `00_memory/retrieval/`。想让书目录里只留记忆与状态文件，两个检索脚本都支持 `--retrieval-dir .story/retrieval`（或环境变量 `NOVEL_RETRIEVAL_DIR`）；build 与 query 要传同一个值。
 
 - 检索结果是**证据不是结论**：命中片段回读原文确认后再引用；与追踪账本冲突时以账本+原文为准。
 - 内容防篡改（novel-writer 原生）：`canonical_state.py accept` 按正文 SHA256 绑定接受凭据，正文改动即失效；索引只收已接受章节。项目冷启动时可先逐章 accept 存量正文。

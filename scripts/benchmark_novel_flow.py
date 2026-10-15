@@ -4,6 +4,7 @@
 import argparse
 
 from config import __version__
+from canonical_state import retrieval_dir as retrieval_dir_for
 import datetime as dt
 import json
 import os
@@ -115,7 +116,7 @@ def main() -> int:
         "avg_retrieval_context_chars": mean([r["retrieval_context_chars"] for r in runs]),
     }
 
-    out = project_root / "00_memory" / "retrieval" / "eval_baseline.json"
+    out = retrieval_dir_for(project_root) / "eval_baseline.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"summary": summary, "runs": runs}, ensure_ascii=False, indent=2), encoding="utf-8")
 
