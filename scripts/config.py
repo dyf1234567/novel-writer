@@ -82,7 +82,7 @@ def get_retrieval_config() -> RetrievalConfig:
 # 版本信息
 # =============================================================================
 
-__version__ = "9.1.0"
+__version__ = "9.2.0"
 # novel-writer 9.0.0 变更（合并版：oh-story 工艺层 + nw 检索层）：
 # - 写作工艺层整体引入 oh-story-claudecode（MIT，见 THIRD_PARTY_NOTICE.md）：
 #   细纲九字段/追踪事务/章流程/检测三件套/55 份方法论文档

@@ -85,10 +85,6 @@ class TestV9RetrievalPipeline(unittest.TestCase):
         self.assertIn("accept", json.dumps(json.loads(proc.stdout), ensure_ascii=False))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestPunctuationNormalizer(unittest.TestCase):
     """锚定 9.1.0 修复：normalize 透传表格/URL，检测器豁免 URL 内破折号。
 
@@ -140,3 +136,7 @@ class TestPunctuationNormalizer(unittest.TestCase):
         for line in (proc.stdout or "").splitlines():
             if "[blocking]" in line:
                 self.assertIn(":9:", line, f"blocking 只应落在正文行: {line[:80]}")
+
+
+if __name__ == "__main__":
+    unittest.main()
