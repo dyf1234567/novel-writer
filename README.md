@@ -1,35 +1,88 @@
 # novel-writer
 
-面向 Codex 的中文长篇小说创作 skill。它以文件化长期记忆维护人物、时间线、世界设定、伏笔与章节摘要，并提供章纲、场景节拍、节奏追踪、计划偏差检查、检索辅助和阶段审计脚本。
+中文长篇小说全流程创作 skill（v9 合并版）。写作工艺层源自 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode)（MIT，见 [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md)）；旧信息混合检索与内容绑定凭据为 novel-writer 原生。
+
+```text
+细纲九字段 → 写前组装 → 正文写作 → 章收口检测 → 追踪事务 → 检索建索引
+```
+
+## 架构（三层，各取所长）
+
+| 层 | 来源 | 内容 |
+|----|------|------|
+| 写作工艺 | oh-story | 细纲九字段模板与验收、写前必读体系、writer prompt 槽位组装、章收口（标点 + 22 类 AI 句式检测 + 退化检测 + 字数，一键）、追踪事务账本（防呆校验 + 派生状态卡 + 双时间线）、55 份写作方法论文档 |
+| 长程记忆 | novel-writer | FTS5/词法 + 本地向量混合检索（旧信息查找：几十章前的伏笔、物件、对白）；SHA256 内容绑定接受凭据（正文改动即失效，索引只收已接受章节） |
+| 作者风格 | style-writer（独立 skill） | 风格基线写入书目录 `设定/文风.md`（自定义文风优先级最高）；写前 few-shot 经 writer prompt 文风槽注入 |
 
 ## 安装
 
-将本仓库克隆或复制到 Codex skills 目录，使目录结构为：
+克隆到你的编程 Agent 的 skills 目录（Codex 为例）：
 
 ```text
 ~/.codex/skills/novel-writer/SKILL.md
 ```
 
-重启或刷新 Codex 后，可用 `$novel-writer` 显式调用，也可让 Codex 在长篇小说任务中自动选择它。
+需要 Python 3（脚本零第三方依赖）与 Node.js 18+（章收口检测）；本地向量检索可选（Ollama + bge-m3）。
 
-## 使用示例
+## 快速开始
 
 ```text
-$novel-writer 继续写当前小说下一章，并保持人物、时间线和伏笔一致。
+$novel-writer 帮我开书：都市悬疑，夜班出租车司机捡到一份死人名单
 ```
 
-项目正文、向量索引、作者语料和本地配置不应提交到本仓库。可选的本地 embedding/RAG 能力需要使用者自行配置；skill 本体仍可在未安装 embedding 服务时使用文件检索与账本工作流。
+开书按确认点推进：定方向 → 定设定 → 卷纲 → 首批细纲（每章过 `check-outline-contract.js` 结构验收）→ 你说写正文才写。日常推进：
 
-## 旧项目升级
+| 场景 | 说法 |
+|------|------|
+| 写下一章 | "日更" / "继续写" / "写第N章" |
+| 补大纲 | "出细纲" / "补纲" / "规划下一卷" |
+| 改稿 | "修改第X章" / "回炉" |
+| 查旧事 | "烟头牌子哪章写的？"（走检索） |
 
-新版检索索引要求逐章接受记录。原稿不会被自动收编；请先审阅，再按 [项目策略与迁移说明](references/project-policy.md) 执行 `canonical_state.py accept` 和索引重建。节奏配额、强制断章等规则改为项目显式启用；可选的构思方法见 [创作工具](references/creative-toolkit.md)。
+## 每章闭环
 
-`continue-write` 默认只报告字数、对话比例、重复度等机械指标，不用它们单独拦稿；确需数值硬门槛时添加 `--strict-prose-metrics`。Beat Sheet、广泛调研、批量审稿任务和四官审稿任务需主动开启。人工创作检查点及卷末审计要求仍默认开启；审稿任务文件不代表 Agent 已完成审稿。
+1. **细纲门禁**：九字段齐备才开写（`check-outline-contract.js` 验收）
+2. **写前组装**：`build_writer_prompt.py` 产出槽位式 prompt（状态速记、必读设定、文风槽）
+3. **写作**：宿主或 narrative-writer 子代理按细纲落笔
+4. **章收口**：`storyctl.py chapter check --fix-punctuation` 一键跑标点整理 + AI 句式检测 + 退化检测 + 字数；**blocking 同轮修净才算完成**
+5. **追踪事务**：`tracking_commit.py` 提交章末 delta（角色快照、伏笔、时间线、下章承诺），账本校验防漂移
+6. **检索索引**：`plot_rag_retriever.py build`（顺手，一条命令）
 
-**每章必须扫描并闭环**：实际检测当前正文，中高风险经针对性润色或逐项误报复核后才可接受；检测未知仍阻断。检测是启发式信号，不证明生成来源，也不统一禁止正常比喻或内心旁白。误报复核绑定正文和检测器版本，改稿后失效；门禁与手动接受都不能用报告标签代替扫描。见 [复核流程](references/quality-gates.md#误报复核与接受边界)。生成与润色不提交长期记忆，接受后才按章更新摘记。
+## 铁律（SKILL.md 摘要）
 
-v9.0.0 为合并版：写作工艺层（细纲九字段、追踪事务、章检测收口、55 份方法论）源自 oh-story-claudecode（MIT，见 THIRD_PARTY_NOTICE.md），去AI味由 check-ai-patterns.js 章收口强制执行；旧信息检索（FTS5/向量）与内容绑定凭据为 novel-writer 原生。
+1. 无细纲不写正文
+2. 写后 blocking 同轮清零（唯一豁免：章首标记 `<!-- 去味:跳过 -->`）
+3. 追踪只走事务，禁手改派生视图
+4. 不承诺一致性保证：如实报告跑了什么、跳了什么、什么不确定
+5. 去味删改保护：轻≤15% / 中≤25% / 重≤35%，冲突标 `[需复核]` 不硬改
 
-宿主默认按以下节奏实际审阅：每章针对性连续性检查 + 去AI味铁律；每 10 章创作检查点与文风复核；卷末全卷审计与多 Agent 审稿；重大剧情接受前红队审查。具体执行要求见 [审查节奏](references/quality-gates.md)。这些语义审阅由宿主完成；缺少多 Agent 工具时逐项审阅并说明执行方式。
+## 旧信息检索（novel-writer 原生）
 
-人物设计和关键关系场景可按需使用 [人物张力指南与卡片](references/character-tension.md)，检查目标、选择和后果。日常场景不强制填卡，也不要求所有人物都有创伤、面具或悲剧结局；填写后的卡片保存在小说项目中。
+```bash
+NOVEL_MANUSCRIPT_DIR=正文 python scripts/plot_rag_retriever.py build --project-root <书目录> --engine fts5
+NOVEL_MANUSCRIPT_DIR=正文 python scripts/plot_rag_retriever.py query --project-root <书目录> \
+  --engine fts5 --query "<旧信息关键词>" --no-skip
+```
+
+检索结果是证据不是结论：命中片段回读原文确认后再引用。内容绑定凭据：`canonical_state.py accept` 按正文 SHA256 绑定，防篡改；存量项目先逐章 accept 再建索引。
+
+## style-writer 风格桥
+
+作者风格包（独立 skill [style-writer](https://github.com/dyf1234567/style-writer)）经两个集成点接入，不改动本流程：风格基线写 `设定/文风.md`；写前 few-shot 填 writer prompt 文风槽。原作设定默认关闭，细则见 [references/style-integration.md](references/style-integration.md)。
+
+## 书项目目录（oh 结构）
+
+```text
+{书名}/
+├── 设定/（世界观、角色、势力、关系、题材定位、文风.md）
+├── 大纲/（大纲、卷纲_第X卷、排纲底稿、细纲_第NNN章）
+├── 正文/（第NNN章_章名.md）
+├── 追踪/（_tracking-state.json 唯一权威 + 上下文/伏笔/角色状态/时间线派生视图）
+└── 对标/（拆文产出，可选）
+```
+
+完整产物协议见 [references/project-files.md](references/project-files.md)；单章流程见 [references/workflow-chapter.md](references/workflow-chapter.md)；质量门禁哲学见 [references/quality-gates.md](references/quality-gates.md)。
+
+## 项目正文与索引不入库
+
+小说项目、向量索引、作者语料与本地配置保存在你自己的目录，不提交到本仓库。
