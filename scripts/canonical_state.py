@@ -82,11 +82,18 @@ def commit_accepted_memory(root: Path, path: Path) -> dict:
     return {"updated": True, "chapter": chapter, "sha256": sha, "summary_file": str(recent)}
 
 
+def manuscript_dir(root: Path) -> Path:
+    """正文目录（9.0.0 合并版）：NOVEL_MANUSCRIPT_DIR 环境变量可覆盖，
+    兼容 novel-writer 原生结构（03_manuscript）与 oh-story 结构（正文/）。"""
+    override = os.environ.get("NOVEL_MANUSCRIPT_DIR", "").strip()
+    return (root / override) if override else (root / "03_manuscript")
+
+
 def chapter_path(root: Path, value: Path) -> Path:
     root = root.resolve()
     path = (root / value).resolve() if not value.is_absolute() else value.resolve()
-    if path.parent != (root / "03_manuscript").resolve() or path.suffix.lower() != ".md":
-        raise ValueError("章节必须是项目 03_manuscript 内的 Markdown 文件")
+    if path.parent != manuscript_dir(root).resolve() or path.suffix.lower() != ".md":
+        raise ValueError(f"章节必须是项目 {manuscript_dir(root).name}/ 内的 Markdown 文件")
     if chapter_no_from_name(path.name) <= 0:
         raise ValueError("无法识别章节号")
     return path
@@ -164,7 +171,7 @@ def accept_chapter(root: Path, path: Path, reviewer: str, source: str = "manual"
 
 def accepted_files(root: Path) -> tuple[list[Path], list[str]]:
     accepted, warnings = [], []
-    for path in sorted((root / "03_manuscript").glob("*.md")):
+    for path in sorted(manuscript_dir(root).glob("*.md")):
         ok, reason = acceptance(root, path)
         if ok:
             accepted.append(path)
@@ -177,7 +184,7 @@ def signature(root: Path) -> str:
     # Include actual bytes AND acceptance status: edits with preserved mtime,
     # removals, new receipts and manual revocation invalidate old indexes/cache.
     rows = []
-    for path in sorted((root / "03_manuscript").glob("*.md")):
+    for path in sorted(manuscript_dir(root).glob("*.md")):
         ok, _ = acceptance(root, path)
         rows.append((path.name, digest(path), ok))
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()

@@ -82,7 +82,21 @@ def get_retrieval_config() -> RetrievalConfig:
 # 版本信息
 # =============================================================================
 
-__version__ = "8.1.1"
+__version__ = "9.0.0"
+# novel-writer 9.0.0 变更（合并版：oh-story 工艺层 + nw 检索层）：
+# - 写作工艺层整体引入 oh-story-claudecode（MIT，见 THIRD_PARTY_NOTICE.md）：
+#   细纲九字段/追踪事务/章流程/检测三件套/55 份方法论文档
+# - plot_rag_retriever 与 canonical_state 适配 oh 目录结构
+#   （NOVEL_MANUSCRIPT_DIR=正文），新增 --no-skip 强制检索开关
+# - SKILL.md 重写为融合流程（铁律五条 + 检索桥 + style-writer 桥）
+# novel-writer 8.2.0 变更（结构句式检测层）：
+# - text_humanizer 移植 oh-story check-ai-patterns 的 blocking 层（MIT）：
+#   not-is-comparison / negation-parade / voice-contrast / trailer-ending / em-dash
+#   五类结构句式，含引号内台词掩码与 either-or/反问尾巴误报排除；
+#   命中即 severity>=medium、ai_score +30/处（>25 阈值语义不变），
+#   ai_flavor_gate 与 writer 自动润色自动生效
+# - 双 skill 对比实验（10 章×2 实测）校准：移植后 nw 检测器与上游
+#   检测结论完全一致（原词法层对 20 章产出零区分度）
 # novel-writer 8.1.1 变更（审计修复轮）：
 # - 修复 continue_write 中 result 提前使用导致的 UnboundLocalError，
 #   人格层提醒（persona_setup 警告）恢复进入输出 JSON

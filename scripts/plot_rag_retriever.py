@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from common import ensure_dir, read_text, slugify, chapter_no_from_name, normalize_text
 from config import get_retrieval_config
 from performance import Tokenizer
-from canonical_state import accepted_files, begin_index, mark_index, require_current_index
+from canonical_state import accepted_files, begin_index, mark_index, require_current_index, manuscript_dir
 
 # 从集中配置加载检索相关常量
 _retrieval_config = get_retrieval_config()
@@ -453,7 +453,7 @@ def cleanup_stale_meta_files(retrieval_dir: Path, docs: List[Dict[str, object]])
 
 def build_index(project_root: Path, keyword_top_n: int = 20, incremental: bool = True) -> Dict[str, object]:
     canonical_sig, incremental = begin_index(project_root, "legacy", incremental)
-    manuscript_dir = project_root / "03_manuscript"
+    man_dir = manuscript_dir(project_root)
     retrieval_dir = project_root / "00_memory" / "retrieval"
     ensure_dir(retrieval_dir)
     index_file = retrieval_dir / "story_index.json"
@@ -855,7 +855,7 @@ def fts5_build_index(
     使 IDF / 文档频率 / BM25 真正生效。占位章（NOVEL_FLOW_STUB / BEAT_SHEET_STUB）
     一律不进入索引。
     """
-    manuscript_dir = project_root / "03_manuscript"
+    man_dir = manuscript_dir(project_root)
     retrieval_dir = project_root / "00_memory" / "retrieval"
     ensure_dir(retrieval_dir)
     names = load_character_names(project_root)
@@ -1133,7 +1133,7 @@ def fts5_retrieve(
                 "score": round(cscore, 3),
                 "reason": {"token_overlap": 0, "entity_overlap": 0, "recency": 0.0},
                 "chapter_file": cfile,
-                "chapter_path": str(project_root / "03_manuscript" / cfile),
+                "chapter_path": str(manuscript_dir(project_root) / cfile),
                 "summary": str(summary_map.get(cfile, "")),
                 "entities": chapter_entities,
                 "events": [],
@@ -1264,6 +1264,8 @@ def parse_args() -> argparse.Namespace:
     p_query.add_argument("--query", required=True)
     p_query.add_argument("--top-k", type=int, default=4)
     p_query.add_argument("--auto-build", action="store_true")
+    p_query.add_argument("--no-skip", action="store_true",
+                         help="跳过轻场景条件判定，强制执行检索（无 novel-writer 记忆文件的项目/oh-story 结构适用）")
     p_query.add_argument("--full-rebuild", action="store_true", help="与 --auto-build 联用时强制全量重建")
     p_query.add_argument("--passages-per-chapter", type=int, default=2, help="每章返回片段数量")
     p_query.add_argument("--candidate-k", type=int, default=12, help="粗筛候选池大小（两级检索第一阶段）")
@@ -1329,6 +1331,11 @@ def _run_query_legacy(args: argparse.Namespace, project_root: Path) -> int:
 
     names = load_character_names(project_root)
     trigger = analyze_query_trigger(args.query, names, load_character_alias_map(project_root))
+    if getattr(args, "no_skip", False) or not names:
+        trigger = dict(trigger, should_trigger=True, reason=["forced: no-skip or no character memory"])
+    if getattr(args, "no_skip", False) or not names:
+        # 9.0.0 合并版：显式 --no-skip，或项目无角色记忆文件（oh-story 结构）时不做轻场景跳过
+        trigger = dict(trigger, should_trigger=True, reason=["forced: no-skip or no character memory"])
     if args.conditional and not args.force and not trigger["should_trigger"]:
         _, payload = _skipped_result_payload(args, project_root, trigger)
         return _emit_query_payload(args, project_root, payload)
@@ -1409,6 +1416,8 @@ def _run_query_fts5(args: argparse.Namespace, project_root: Path) -> int:
 
     names = load_character_names(project_root)
     trigger = analyze_query_trigger(args.query, names, load_character_alias_map(project_root))
+    if getattr(args, "no_skip", False) or not names:
+        trigger = dict(trigger, should_trigger=True, reason=["forced: no-skip or no character memory"])
     if args.conditional and not args.force and not trigger["should_trigger"]:
         _, payload = _skipped_result_payload(args, project_root, trigger)
         return _emit_query_payload(args, project_root, payload)
@@ -1659,6 +1668,8 @@ def _run_query_hybrid(args: argparse.Namespace, project_root: Path) -> int:
 
     names = load_character_names(project_root)
     trigger = analyze_query_trigger(args.query, names, load_character_alias_map(project_root))
+    if getattr(args, "no_skip", False) or not names:
+        trigger = dict(trigger, should_trigger=True, reason=["forced: no-skip or no character memory"])
     if args.conditional and not args.force and not trigger["should_trigger"]:
         _, payload = _skipped_result_payload(args, project_root, trigger)
         return _emit_query_payload(args, project_root, payload)

@@ -1,120 +1,95 @@
 ---
 name: novel-writer
-description: 管理已建立或新建的中文长篇小说项目。当任务涉及持久化章节状态、连续性检索、大纲感知的草稿撰写、修订或发布检查时使用。适用于多章节长篇与连载小说；单篇短文、一次性文段改写、或单独的作者风格提取不要激活本技能。
+version: 9.0.0
+description: 中文长篇小说全流程创作（v9 合并版：写作工艺层源自 oh-story，检索与风格层为 novel-writer 原生）。当任务涉及长篇小说的规划、细纲、正文写作、续写、修改、追踪、去AI味、旧信息检索或作者风格应用时使用。触发方式：/novel-writer、写长篇、开书、出卷纲、补细纲、日更、续写、修改第X章、旧信息查找。
 ---
 
-# Novel Writer（长篇小说写作技能）
+# novel-writer v9：长篇网文写作（合并版）
 
-在不把某一种写作配方当作普遍真理的前提下协调长篇小说创作。保留用户的创作决定权，同时保证项目状态可恢复、内部自洽。
+写作工艺（细纲九字段、追踪事务、确定性检测、章流程）源自 [oh-story-claudecode](https://github.com/zenstory-ai/oh-story-claudecode)（MIT，见 THIRD_PARTY_NOTICE.md）；旧信息混合检索（FTS5/向量）与 style-writer 风格桥为 novel-writer 原生。
 
-## 请求路由
+你是网络小说创作教练+项目状态管理者：工艺上按 oh 的章流程交付，状态上用事务账本防漂移，长程上用检索对抗遗忘。
 
-加载详细指引前，先选定一个主模式：
+## 铁律（任何情况下不可违反）
 
-- **创建或规划项目**：读 [workflows.md](references/workflows.md) 的「Create」「Plan」小节。
-- **探索剧情备选方案、开篇策略、人物主动性或节奏**：请求确实需要写作指导时，读 [creative-toolkit.md](references/creative-toolkit.md)。
-- **设计重要人物、关键关系场景，或诊断动机薄弱**：读 [character-tension.md](references/character-tension.md)。其人物卡片按需选用；日常场景不要求填卡，创伤、面具或悲剧结局永远不是必需项。
-- **撰写或续写章节**：读 [workflows.md](references/workflows.md) 的「Draft and continue」小节，外加 [project-contract.md](references/project-contract.md)。
-- **修订已有章节或大纲**：读 [workflows.md](references/workflows.md) 的「Revise」小节。绝不自行推定获得重写未受影响章节的授权。
-- **查看状态、连续性、人物、时间线或伏笔**：读 [project-contract.md](references/project-contract.md)。仅查看不构成编辑授权。
-- **执行编辑或发布检查**：读 [quality-gates.md](references/quality-gates.md)。
-- **运营长连载或百万字项目**：读 [long-form-operations.md](references/long-form-operations.md)，涉及混合检索、全卷审计与人工检查点。
-- **接受旧章节、配置门禁、恢复审计**：读 [project-policy.md](references/project-policy.md)。
-- **应用作者风格包**：读 [style-integration.md](references/style-integration.md)。除非用户明确要求改编或同人，保持原作设定关闭。
+1. **无细纲不写正文**：写第 N 章前 `大纲/细纲_第N章.md` 必须存在且九字段齐备（`check-outline-contract.js` 验收）。
+2. **写后同轮清零**：正文落盘后 `storyctl.py chapter check --fix-punctuation` 的 blocking 必须修净才算本章完成；唯一豁免是章首标记 `<!-- 去味:跳过 -->`。
+3. **追踪只走事务**：`追踪/_tracking-state.json` 是唯一权威，任何追踪写入必须经 `tracking_commit.py`，禁止手改派生视图。
+4. **不承诺一致性保证**：不得声称任何流程"保证不写飞"；如实报告哪些检查跑了、哪些跳过、哪些不确定。指标与检测器产出的是证据，不是文学判决。
+5. **删改保护**：去味删除比例上限轻≤15%/中≤25%/重≤35%；不得整段删除正文；冲突标 `[需复核]` 而非硬改。
 
-独立的短篇或单段文字，直接写，不初始化长篇项目机制——除非用户要求将其转为受管理的小说项目。
+## 写前必读（强制，先读后写）
 
-## 建立项目上下文
+1. 规划按时刻读：定方向定设定读 `references/workflow-setup.md`，出卷纲读 `references/workflow-volume.md`，出细纲读 `references/workflow-outline.md`；写指定章读 `references/workflow-chapter.md`；日更先读 `references/workflow-daily.md` 再进 `workflow-chapter.md`；大修读 `references/workflow-revision.md`。
+2. 主会话直接写正文时，首次落笔前完整读取 `references/long-format.md` 与 `references/writing-craft.md`。
+3. 本章技法按「本章技法」一节至多选一份，只读该文件的决策路由与指向节。
+4. 正文写前重读当前请求、本章细纲和卷纲，记下本轮约束（字数范围、必发生、禁止发生、停笔点、章尾新债）；交付前逐项复核。
 
-改动项目之前：
+## 旧信息检索（novel-writer 原生，oh 结构适配）
 
-1. 从用户路径或当前工作区解析项目根目录。不得臆造项目位置。
-2. 检查既有状态与配置。保留未知字段与用户手写的备注。
-3. 判定请求是只读、起草、修订，还是状态迁移。
-4. 使用满足请求的最小工作流。不因为项目支持调研、多 Agent 审稿、风格模仿或批量写作，就顺手运行它们。
+追踪状态卡回答"下一章需要什么"；**旧章节细节（几十章前的伏笔、物件、对白）用检索回答**。日更的"旧信息查找"步骤、任何"哪章写过X"的问题，优先跑：
 
-新建项目时，只确认实质影响结果的选择：前提、目标篇幅、视角、自动化程度、不可协商的约束。用户不确定时主动给出默认值。
+```bash
+# 建索引（每章 commit 后顺手跑；oh 结构项目需设环境变量）
+NOVEL_MANUSCRIPT_DIR=正文 python scripts/plot_rag_retriever.py build --project-root <书目录> --engine fts5
 
-## 状态不变量
+# 查询（--no-skip：无 novel-writer 记忆文件的项目不跳过）
+NOVEL_MANUSCRIPT_DIR=正文 python scripts/plot_rag_retriever.py query --project-root <书目录> --engine fts5 --query "<旧信息关键词>" --no-skip
 
-项目文件是持久状态；对话历史不是。
-
-- 正文字本与计划、审阅笔记、提示词、工具输出保持分离。
-- 不悄悄改动已确认的大纲锚点、人物事实、时间线事实或已回收伏笔。
-- 记录变更了某个持久事实的章节或修订。
-- 把生成式摘要当作可能出错的证据，而非不容置疑的真相。来源冲突时优先正文原文与用户确认的事实。
-- 章节被接受后，更新相关项目记忆与检索索引。被用户否决的草稿、或被阻断检查判失败的草稿，不得进入规范记忆。
-- 索引或使用历史段落前，先核验该章的内容绑定接受记录。旧项目需要显式收编；不因文件躺在正文书目录里就默默信任它。
-- 大纲级联或多文件重写前，先保证可恢复性。
-
-状态所有权与状态迁移的细节见 [project-contract.md](references/project-contract.md)。
-
-## 撰写契约
-
-只装配当前章节所需的上下文：
-
-1. 当前大纲锚点与章节目标；
-2. 近期章节摘要；
-3. 相关人物、地点、时间线事实、活跃剧情线与伏笔；
-4. 连续性风险值得时，检索历史段落；
-5. 可选的风格上下文；
-6. 用户显式约束。
-
-生成干净的正文。绝不在正文区域内放置分析标签、TODO、角色说明或审阅评语。
-
-**每章必须扫描并闭环**：草稿完成后执行 `text_humanizer.py`。检测是启发式审阅信号，不能鉴定 AI 来源；普通词语、有意比喻或内心旁白不是统一禁用项。「中等/严重」须针对真正问题润色复检，或由审阅者逐项解释为何属于误报、应按项目声音保留，使用 `review` 显式记录。复核绑定正文 SHA256、检测结果和检测器版本；正文或检测器变化后失效。检测未执行或结果未知仍阻断。门禁与手动接受均重新扫描实际正文，不以报告文字代替证据。详见 [误报复核流程](references/quality-gates.md#误报复核与接受边界)。
-
-节奏配额与断章频率是项目显式启用的策略。`continue-write` CLI 默认把文字指标记录为建议信号；仅当用户要求数值阈值阻断接受时使用 `--strict-prose-metrics`。显式 Beat Sheet 模式可以强制其自身的 Beat 目标。不要把指标合格当作文学认可。
-
-按 [quality-gates.md](references/quality-gates.md) 的默认节奏执行审阅：每章针对性连续性检查 + 去AI味铁律；每 10 个已接受章节创作检查点与风格复核；卷末全卷审计与多 Agent 审稿；重大不可逆剧情决策红队审查。这些语义审阅由宿主完成，并报告已完成、待处理或不可用；脚本本身不构成审阅完成。
-
-## 质量分级
-
-检查分三级严重度：
-
-- **阻断（Blocking）**：正文污染、已确认事实矛盾、无效状态迁移、用户硬约束违反、预期产物不完整或结构无效、以及扫描「中等/严重」未润色或未完成有效误报复核、检测结果未知。发布或更新规范记忆前先停下。
-- **降级（Degraded）**：检索不可用、非关键索引过期、可选分析器失败。仅在明确告警并记录兜底方案后继续。
-- **节奏外可选（Optional）**：额外的风格审计与多 Agent 审稿、人工化附加轮次、仪表盘、广泛调研——除非项目配置提升了它们的级别。
-
-不得声称任何工作流能在任意字数下保证一致性。报告哪些检查跑了、哪些跳过了、哪些仍不确定。详见 [quality-gates.md](references/quality-gates.md)。
-
-## 脚本执行
-
-脚本位于 `scripts/`。以可移植方式解析 Python：
-
-1. 配置了 `NOVEL_WRITER_PYTHON` 时优先使用；
-2. 否则使用环境中当前可用的 Python 解释器；
-3. Windows 上，`py` 启动器是可接受的兜底。
-
-绝不在生成的项目文件或指令中嵌入用户专属的绝对解释器路径。
-
-主要入口：
-
-```text
-scripts/novel_flow_executor.py one-click
-scripts/novel_flow_executor.py continue-write
-scripts/novel_flow_executor.py revise-outline
-scripts/plot_rag_retriever.py build|query
-scripts/canonical_state.py status|accept
-scripts/local_vector_retriever.py build|query
-scripts/volume_audit.py collect|complete|status
-scripts/creative_checkpoint.py status|approve|reject
-scripts/chapter_gate_check.py
-scripts/gate_repair_plan.py
-scripts/story_graph_builder.py
-scripts/style_audit.py
-scripts/text_humanizer.py detect|report|prompt|review
+# 可选本地语义检索（需 Ollama + bge-m3）
+NOVEL_MANUSCRIPT_DIR=正文 python scripts/local_vector_retriever.py build --project-root <书目录>
 ```
 
-构造参数尚未确立的命令前，先查看 `--help`（各 CLI 亦支持 `--version`）。确定性状态操作用脚本；文字、语义审阅与创作取舍用模型判断。
+- 检索结果是**证据不是结论**：命中片段回读原文确认后再引用；与追踪账本冲突时以账本+原文为准。
+- 内容防篡改（novel-writer 原生）：`canonical_state.py accept` 按正文 SHA256 绑定接受凭据，正文改动即失效；索引只收已接受章节。项目冷启动时可先逐章 accept 存量正文。
 
-## 完成报告
+## style-writer 风格桥（novel-writer 原生）
 
-对每次变更，报告：
+作者风格包（独立 skill `style-writer`，经 `STYLE_WRITER_SKILL_HOME` 或同级目录定位）按两个集成点接入，不改本流程：
 
-- 正文或状态改了什么；
-- 规范记忆与索引是否已更新；
-- 跑过的阻断、降级、可选检查；
-- 未解决的风险或待用户决策的事项。
+1. **风格基线**：把 style-writer 的 profile/rules.md 产出写入书目录 `设定/文风.md`——oh 的自定义文风（优先级最高）自动取代对标文风召回。
+2. **写前 few-shot**：`build_writer_prompt.py` 的「文风」槽由主会话填——跑 style-writer 的 `style_engine.py::prepare_context(author, query, ...)` 取语感样章与人格层，摘要填进该槽（≤2KB），不整段粘贴。
 
-不要把正则或 schema 校验通过等同于文学质量。
+原作设定默认关闭；启用作者风格不得连带启用原作世界检索（细则见 `references/style-integration.md`）。
+
+## 核心方法
+
+先抓情绪，再用验证过的模式可靠交付：每个场景服务一个说得清的目标情绪；从对标里找验证过的剧情模式；写每章只读「不知道就会写错」的状态。契约与推进决策过 `references/reader-contract-and-progression.md`「契约四问」。
+
+**本章技法（每章至多读一份）**：打脸/逆袭 `style-combat-face.md`；反转 `long-reversal.md`；感情拉扯 `emotional-methods.md`；悬疑 `long-suspense.md`；日常装逼 `long-chapter-hooks.md`；都不对应按 writing-craft 写。
+
+## 写作流程
+
+| 场景 | 触发条件 | 执行流程 |
+|------|----------|---------|
+| 开书 | "帮我开书" | 定方向→定设定→卷纲→首批细纲，逐确认点推进，最远停在细纲交付 |
+| 细纲规划 | "出细纲/补纲" | `workflow-outline.md`；落盘后过 `check-outline-contract.js` |
+| 写指定章 | "写第N章" | `workflow-chapter.md` 步骤 1-13 |
+| 日更续写 | "日更/继续写" 且已有正文+追踪 | `workflow-daily.md`；单轮最多 3 章 |
+| 大修 | "修改第X章/回炉" | `workflow-revision.md` |
+
+裸调用只诊断并列选项，不自动进正文。对象不明给 2-4 个白话选项。
+
+## 追踪与新增物
+
+- 追踪写入只走 `scripts/tracking_commit.py`；角色变更必须带新快照；章末事务含伏笔 delta、时间线事件、下章承诺。
+- 新增物三级：**直接写**（路人/器物/一次性细节，不申报）；**写了要报**（具名配角/势力/新伏笔/新关系，进申报表）；**先问作者**（新主线反转/金手指规则/真相结算/改变既定结果）。
+
+## 脚本入口
+
+| 脚本 | 用途 |
+|------|------|
+| `scripts/build_writer_prompt.py` | 写前组装（prompt 槽位+核对报告） |
+| `scripts/storyctl.py chapter check/commit` | 章收口（标点+AI句式+退化+字数一键）与事务提交 |
+| `scripts/tracking_commit.py` | 追踪账本（init/check/draft/commit） |
+| `scripts/outline_view.py` + `check-outline-contract.js` | 卷纲取段器与细纲验收 |
+| `scripts/check-ai-patterns.js` / `check-degeneration.js` / `normalize-punctuation.js` | 确定性检测三件套 |
+| `scripts/plot_rag_retriever.py` / `local_vector_retriever.py` | 旧信息混合检索（novel-writer 原生） |
+| `scripts/canonical_state.py` | 内容绑定接受凭据（novel-writer 原生） |
+| `scripts/author_memory_commit.py` | 跨会话作者习惯（query/record） |
+
+`{PYTHON}` 依次试 `python3`、`python`、`py -3`；检索脚本在 oh 结构项目配 `NOVEL_MANUSCRIPT_DIR=正文`。
+
+## 语言
+
+跟随用户语言；中文回复遵循《中文文案排版指北》。
